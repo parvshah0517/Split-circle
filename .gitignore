@@ -1,0 +1,25 @@
+
+# AWS CDK infrastructure - keep out of GitHub
+infrastructure/
+
+# Node dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Python virtual environment
+.venv/
+__pycache__/
+*.pyc
+
+# CDK generated output
+cdk.out/
+
+# macOS files
+.DS_Store
