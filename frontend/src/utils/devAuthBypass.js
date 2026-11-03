@@ -2,7 +2,7 @@
 // Temporary development authentication bypass.
 // Set DEV_AUTH_BYPASS to false when backend authentication is ready.
 
-export const DEV_AUTH_BYPASS = true;
+export const DEV_AUTH_BYPASS = false;
 
 export const DEV_PREVIEW_USER = {
   id: "dev-user-001",
