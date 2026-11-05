@@ -1,0 +1,90 @@
+
+name: SplitCircle Backend Deployment
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: Deploy Backend to EC2
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Install Session Manager Plugin
+        run: |
+          curl -sSL \
+            https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb \
+            -o session-manager-plugin.deb
+          sudo dpkg -i session-manager-plugin.deb
+
+      - name: Configure SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/splitcircle_key
+          chmod 600 ~/.ssh/splitcircle_key
+
+      - name: Start SSM tunnel
+        run: |
+          nohup aws ssm start-session \
+            --target i-09edbdf3b511afc4a \
+            --document-name AWS-StartPortForwardingSession \
+            --parameters '{"portNumber":["22"],"localPortNumber":["2222"]}' \
+            > /tmp/ssm-session.log 2>&1 &
+
+          for i in {1..30}; do
+            if nc -z localhost 2222; then
+              echo "SSM tunnel ready"
+              exit 0
+            fi
+            sleep 2
+          done
+
+          cat /tmp/ssm-session.log
+          exit 1
+
+      - name: Package backend
+        run: |
+          tar -czf /tmp/backend.tar.gz \
+            --exclude=node_modules \
+            --exclude=.env \
+            -C backend .
+
+      - name: Transfer backend
+        run: |
+          scp -i ~/.ssh/splitcircle_key \
+            -P 2222 \
+            -o StrictHostKeyChecking=no \
+            /tmp/backend.tar.gz \
+            ec2-user@localhost:/tmp/backend.tar.gz
+
+      - name: Deploy backend
+        run: |
+          ssh -i ~/.ssh/splitcircle_key \
+            -p 2222 \
+            -o StrictHostKeyChecking=no \
+            ec2-user@localhost '
+              set -e
+              mkdir -p /home/ec2-user/splitcircle-deploy
+              tar -xzf /tmp/backend.tar.gz -C /home/ec2-user/splitcircle-deploy
+              cd /home/ec2-user/splitcircle-deploy
+              /home/ec2-user/splitcircle-deploy/node/bin/node \
+                /home/ec2-user/splitcircle-deploy/node/lib/node_modules/npm/bin/npm-cli.js \
+                ci --omit=dev
+              sudo systemctl restart splitcircle-backend
+              sudo systemctl is-active splitcircle-backend
+            '
