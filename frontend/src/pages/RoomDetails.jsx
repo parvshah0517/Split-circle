@@ -1,4 +1,3 @@
-
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -7,67 +6,45 @@ import {
   Copy,
   Users,
   CalendarDays,
-  Receipt,
   Plus,
   RefreshCw,
   ChevronDown,
   ChevronUp,
-  Loader2,
+  RotateCcw,
+  Coffee,
+  ShoppingBag,
+  Disc,
+  Utensils,
+  ShieldCheck,
 } from "lucide-react";
 
-import Button from "../components/common/Button";
-import Card from "../components/common/Card";
-import Input from "../components/common/Input";
-import PageHeader from "../components/common/PageHeader";
 import Avatar from "../components/common/Avatar";
 import StatusBadge from "../components/common/StatusBadge";
+import QuickExpenseModal from "../components/expenses/QuickExpenseModal";
+import { DribbbleIcon, SpotifyIcon } from "../components/common/BrandIcons";
 
 import { useAuth } from "../hooks/useAuth";
 import { getRoomById } from "../services/groupService";
+import { getRoomExpenses, getExpenseById } from "../services/expenseService";
 
-import {
-  getRoomExpenses,
-  getExpenseById,
-  createExpense,
-  getExpenseCategories,
-} from "../services/expenseService";
+const categoryIconMap = {
+  coffee: Coffee,
+  dribbble: DribbbleIcon,
+  design: DribbbleIcon,
+  spotify: SpotifyIcon,
+  music: SpotifyIcon,
+  food: Utensils,
+  dining: Utensils,
+  shopping: ShoppingBag,
+  refund: RotateCcw,
+};
 
-const SPLIT_METHODS = [
-  { value: "EQUAL", label: "Equally" },
-  { value: "EXACT", label: "Exact amounts" },
-  { value: "PERCENTAGE", label: "By percentage" },
-  { value: "SHARES", label: "By shares" },
-];
-
-function formatMoney(amount, currency = "INR") {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency,
-    minimumFractionDigits: 2,
-  }).format(Number(amount || 0));
-}
-
-function formatDate(value) {
-  if (!value) return "Date unavailable";
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) return "Date unavailable";
-
-  return date.toLocaleDateString("en-IN", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
-
-function getLocalDate() {
-  const now = new Date();
-  const offset = now.getTimezoneOffset() * 60000;
-
-  return new Date(now.getTime() - offset)
-    .toISOString()
-    .slice(0, 10);
+function getCategoryIcon(title = "", category = "") {
+  const lower = `${title} ${category}`.toLowerCase();
+  for (const [key, Icon] of Object.entries(categoryIconMap)) {
+    if (lower.includes(key)) return Icon;
+  }
+  return ShoppingBag;
 }
 
 export default function RoomDetails() {
@@ -77,60 +54,20 @@ export default function RoomDetails() {
 
   const [room, setRoom] = useState(null);
   const [expenses, setExpenses] = useState([]);
-  const [categories, setCategories] = useState([]);
-
   const [isLoading, setIsLoading] = useState(true);
-  const [isLoadingExpenses, setIsLoadingExpenses] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
+  const [showAddExpense, setShowAddExpense] = useState(false);
 
-  const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [expandedExpense, setExpandedExpense] = useState(null);
   const [expenseDetails, setExpenseDetails] = useState({});
-  const [loadingDetails, setLoadingDetails] = useState(null);
-
-  const [form, setForm] = useState({
-    title: "",
-    description: "",
-    total_amount: "",
-    expense_date: getLocalDate(),
-    category_id: "",
-    split_method: "EQUAL",
-    notes: "",
-  });
-
-  const [selectedParticipants, setSelectedParticipants] = useState([]);
-  const [participantValues, setParticipantValues] = useState({});
-
-  const loadExpenses = useCallback(async () => {
-    try {
-      setIsLoadingExpenses(true);
-
-      const result = await getRoomExpenses(roomId);
-      setExpenses(result);
-    } catch (error) {
-      toast.error(error.message || "Unable to load expenses.");
-    } finally {
-      setIsLoadingExpenses(false);
-    }
-  }, [roomId]);
 
   const loadRoom = useCallback(async () => {
     try {
       setIsLoading(true);
-
-      const [roomData, categoryData] = await Promise.all([
-        getRoomById(roomId),
-        getExpenseCategories(),
-      ]);
-
+      const roomData = await getRoomById(roomId);
       setRoom(roomData);
-      setCategories(categoryData);
-
-      setSelectedParticipants(
-        roomData.members.map((member) => String(member.id))
-      );
+      const expList = await getRoomExpenses(roomId);
+      setExpenses(expList);
     } catch (error) {
-      setRoom(null);
       toast.error(error.message || "Unable to load room.");
     } finally {
       setIsLoading(false);
@@ -141,747 +78,255 @@ export default function RoomDetails() {
     loadRoom();
   }, [loadRoom]);
 
-  useEffect(() => {
-    if (room) {
-      loadExpenses();
-    }
-  }, [room, loadExpenses]);
-
   const handleCopyCode = async () => {
+    if (!room?.code) return;
     try {
       await navigator.clipboard.writeText(room.code);
-      toast.success("Room invitation code copied.");
+      toast.success("Room invitation code copied!");
     } catch {
       toast.error("Unable to copy room code.");
     }
   };
 
-  const updateForm = (event) => {
-    const { name, value } = event.target;
-
-    setForm((current) => ({
-      ...current,
-      [name]: value,
-    }));
-  };
-
-  const toggleParticipant = (memberId) => {
-    setSelectedParticipants((current) =>
-      current.includes(memberId)
-        ? current.filter((id) => id !== memberId)
-        : [...current, memberId]
-    );
-  };
-
-  const updateParticipantValue = (memberId, value) => {
-    setParticipantValues((current) => ({
-      ...current,
-      [memberId]: value,
-    }));
-  };
-
-  const handleCreateExpense = async (event) => {
-    event.preventDefault();
-
-    if (!form.title.trim()) {
-      toast.error("Enter an expense title.");
+  const toggleExpense = async (id) => {
+    if (expandedExpense === id) {
+      setExpandedExpense(null);
       return;
     }
-
-    if (!form.total_amount || Number(form.total_amount) <= 0) {
-      toast.error("Enter a valid expense amount.");
-      return;
-    }
-
-    if (selectedParticipants.length === 0) {
-      toast.error("Select at least one participant.");
-      return;
-    }
-
-    const currentUserId = String(user?.id ?? user?.userId ?? "");
-
-    if (!currentUserId) {
-      toast.error("Unable to identify the current user.");
-      return;
-    }
-
-    if (!selectedParticipants.includes(currentUserId)) {
-      toast.error("You must include yourself in the expense participants.");
-      return;
-    }
-
-    const participants = selectedParticipants.map((memberId) => {
-      const participant = {
-        user_id: Number(memberId),
-      };
-
-      if (form.split_method !== "EQUAL") {
-        participant.value = participantValues[memberId];
+    setExpandedExpense(id);
+    if (!expenseDetails[id]) {
+      try {
+        const details = await getExpenseById(roomId, id);
+        setExpenseDetails((prev) => ({ ...prev, [id]: details }));
+      } catch (err) {
+        console.error("Could not fetch expense details:", err);
       }
-
-      return participant;
-    });
-
-    if (
-      form.split_method !== "EQUAL" &&
-      participants.some(
-        (participant) =>
-          participant.value === undefined ||
-          participant.value === "" ||
-          Number(participant.value) <= 0
-      )
-    ) {
-      toast.error("Enter a valid split value for every participant.");
-      return;
-    }
-
-    const payload = {
-      title: form.title.trim(),
-      description: form.description.trim() || undefined,
-      total_amount: form.total_amount,
-      expense_date: form.expense_date,
-      category_id: form.category_id || undefined,
-      split_method: form.split_method,
-      paid_by: Number(currentUserId),
-      participants,
-      notes: form.notes.trim() || undefined,
-      currency: room.defaultCurrency || "INR",
-    };
-
-    try {
-      setIsCreating(true);
-
-      await createExpense(roomId, payload);
-
-      toast.success("Expense created successfully.");
-
-      setForm({
-        title: "",
-        description: "",
-        total_amount: "",
-        expense_date: getLocalDate(),
-        category_id: "",
-        split_method: "EQUAL",
-        notes: "",
-      });
-
-      setParticipantValues({});
-      setSelectedParticipants(
-        room.members.map((member) => String(member.id))
-      );
-
-      setShowExpenseForm(false);
-
-      await loadExpenses();
-    } catch (error) {
-      toast.error(error.message || "Unable to create expense.");
-    } finally {
-      setIsCreating(false);
-    }
-  };
-
-  const toggleExpenseDetails = async (expenseId) => {
-    if (expandedExpense === expenseId) {
-      setExpandedExpense(null);
-      return;
-    }
-
-    setExpandedExpense(expenseId);
-
-    if (expenseDetails[expenseId]) return;
-
-    try {
-      setLoadingDetails(expenseId);
-
-      const details = await getExpenseById(roomId, expenseId);
-
-      setExpenseDetails((current) => ({
-        ...current,
-        [expenseId]: details,
-      }));
-    } catch (error) {
-      toast.error(error.message || "Unable to load expense details.");
-      setExpandedExpense(null);
-    } finally {
-      setLoadingDetails(null);
     }
   };
 
   if (isLoading) {
     return (
-      <div className="space-y-6">
-        <PageHeader
-          title="Loading Room"
-          description="Retrieving room information."
-        />
-
-        <Card className="p-8 text-center">
-          <Loader2 className="mx-auto h-6 w-6 animate-spin" />
-          <p className="mt-3 text-sm text-muted-foreground">
-            Loading room details...
-          </p>
-        </Card>
+      <div className="py-20 text-center text-sm text-gray-400">
+        Loading room details from backend...
       </div>
     );
   }
 
   if (!room) {
     return (
-      <div className="space-y-6">
-        <PageHeader
-          title="Room Not Found"
-          description="This room may no longer be available."
-        />
-
-        <Card className="p-8 text-center">
-          <Users className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
-
-          <h2 className="font-semibold text-foreground">
-            Unable to find this room
-          </h2>
-
-          <Button
-            className="mt-5"
-            onClick={() => navigate("/rooms")}
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back to My Rooms
-          </Button>
-        </Card>
+      <div className="py-20 text-center">
+        <p className="text-gray-600 font-bold">Room not found.</p>
+        <button
+          type="button"
+          onClick={() => navigate("/rooms")}
+          className="mt-3 inline-block text-xs font-bold text-[#00C4A7] hover:underline"
+        >
+          &larr; Back to all rooms
+        </button>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <button
-        type="button"
-        onClick={() => navigate("/rooms")}
-        className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to My Rooms
-      </button>
+    <div className="space-y-6 pb-20">
+      {/* Top Header */}
+      <div className="flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => navigate("/rooms")}
+          className="inline-flex items-center gap-2 rounded-xl bg-white border border-gray-200 px-3.5 py-2 text-xs font-bold text-gray-700 hover:bg-gray-50 transition-colors shadow-2xs"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          <span>All Rooms</span>
+        </button>
 
-      <PageHeader
-        title={room.name}
-        description="Room overview, members and shared expenses."
-      />
-
-      {/* ROOM INFORMATION */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card className="p-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-brand-50 text-brand-700">
-              <Users className="h-5 w-5" />
-            </div>
-
-            <div>
-              <h2 className="font-semibold text-foreground">
-                Room Information
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                Basic details about this room.
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-6 space-y-4">
-            <div>
-              <p className="text-sm text-muted-foreground">Room Name</p>
-              <p className="font-medium">{room.name}</p>
-            </div>
-
-            {room.description && (
-              <div>
-                <p className="text-sm text-muted-foreground">Description</p>
-                <p className="font-medium">{room.description}</p>
-              </div>
-            )}
-
-            <div>
-              <p className="text-sm text-muted-foreground">Created On</p>
-              <div className="mt-1 flex items-center gap-2">
-                <CalendarDays className="h-4 w-4 text-muted-foreground" />
-                {formatDate(room.createdAt)}
-              </div>
-            </div>
-
-            <div>
-              <p className="text-sm text-muted-foreground">Total Members</p>
-              <p className="font-medium">{room.members.length}</p>
-            </div>
-
-            <div>
-              <p className="text-sm text-muted-foreground">Default Currency</p>
-              <p className="font-medium">{room.defaultCurrency || "INR"}</p>
-            </div>
-          </div>
-        </Card>
-
-        {/* INVITATION CODE */}
-        <Card className="p-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-brand-50 text-brand-700">
-              <Copy className="h-5 w-5" />
-            </div>
-
-            <div>
-              <h2 className="font-semibold">Invitation Code</h2>
-              <p className="text-sm text-muted-foreground">
-                Share this code to invite people.
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-6 rounded-lg border border-dashed border-border bg-muted p-5 text-center">
-            <p className="text-xs text-muted-foreground">ROOM CODE</p>
-
-            <p className="mt-2 font-mono text-2xl font-bold tracking-[0.2em]">
-              {room.code}
-            </p>
-
-            <Button
-              className="mt-4"
-              variant="secondary"
-              onClick={handleCopyCode}
-            >
-              <Copy className="h-4 w-4" />
-              Copy Code
-            </Button>
-          </div>
-        </Card>
+        <button
+          type="button"
+          onClick={loadRoom}
+          className="inline-flex items-center gap-1.5 rounded-xl bg-white border border-gray-200 px-3 py-2 text-xs font-bold text-gray-700 hover:bg-gray-50 transition-colors"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          <span>Refresh</span>
+        </button>
       </div>
 
-      {/* ROOM MEMBERS */}
-      <Card className="p-6">
-        <div className="mb-5">
-          <h2 className="text-lg font-semibold">Room Members</h2>
-          <p className="text-sm text-muted-foreground">
-            People who belong to this room.
+      {/* Room Hero Card */}
+      <div className="rounded-[28px] bg-white p-6 border border-gray-100 shadow-[0_4px_24px_-4px_rgba(0,0,0,0.04)] flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+            Room Circle · Currency {room.defaultCurrency || "INR"}
+          </span>
+          <h1 className="text-2xl sm:text-3xl font-black text-gray-900 mt-1">
+            {room.name}
+          </h1>
+          <p className="text-xs sm:text-sm text-gray-400 mt-1">
+            {room.memberCount || room.members?.length || 1} registered participants
           </p>
         </div>
 
-        {room.members.length === 0 ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">
-            No members found.
-          </p>
-        ) : (
-          <div className="divide-y divide-border">
-            {room.members.map((member) => (
-              <div
-                key={member.id}
-                className="flex items-center justify-between gap-3 py-4 first:pt-0 last:pb-0"
-              >
-                <div className="flex min-w-0 items-center gap-3">
-                  <Avatar name={member.name} size="md" />
-
-                  <div className="min-w-0">
-                    <p className="truncate font-medium">{member.name}</p>
-                    <p className="truncate text-sm text-muted-foreground">
-                      {member.email || "No email available"}
-                    </p>
-                  </div>
-                </div>
-
-                {member.id === room.createdBy && (
-                  <span className="shrink-0 rounded-full bg-brand-50 px-3 py-1 text-xs font-medium text-brand-700">
-                    Creator
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-
-      {/* ROOM EXPENSES */}
-      <Card className="p-6">
-        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-brand-50 text-brand-700">
-              <Receipt className="h-5 w-5" />
-            </div>
-
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Invite Code Pill */}
+          <div className="flex items-center gap-2.5 rounded-2xl bg-[#F8F9FA] px-4 py-2.5 border border-gray-100">
             <div>
-              <h2 className="text-lg font-semibold">Room Expenses</h2>
-              <p className="text-sm text-muted-foreground">
-                Shared expenses recorded in this room.
-              </p>
+              <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block">
+                Invitation Code
+              </span>
+              <span className="font-mono text-sm font-bold text-gray-900 tracking-wider">
+                {room.code}
+              </span>
             </div>
-          </div>
-
-          <div className="flex gap-2">
-            <Button
-              variant="secondary"
-              onClick={loadExpenses}
-              disabled={isLoadingExpenses}
+            <button
+              type="button"
+              onClick={handleCopyCode}
+              className="ml-2 flex h-8 w-8 items-center justify-center rounded-xl bg-white text-[#00C4A7] hover:bg-teal-50 shadow-2xs"
             >
-              <RefreshCw className={`h-4 w-4 ${isLoadingExpenses ? "animate-spin" : ""}`} />
-              Refresh
-            </Button>
-
-            <Button onClick={() => setShowExpenseForm((current) => !current)}>
-              <Plus className="h-4 w-4" />
-              Add Expense
-            </Button>
+              <Copy className="h-4 w-4" />
+            </button>
           </div>
-        </div>
 
-        {/* CREATE EXPENSE FORM */}
-        {showExpenseForm && (
-          <form
-            onSubmit={handleCreateExpense}
-            className="mt-6 space-y-5 rounded-xl border border-border bg-muted/30 p-5"
+          <button
+            type="button"
+            onClick={() => setShowAddExpense(true)}
+            className="flex items-center gap-2 rounded-2xl bg-[#00C4A7] hover:bg-[#00B096] text-white px-5 py-3 text-xs font-bold uppercase tracking-wider shadow-lg shadow-[#00C4A7]/20 active:scale-[0.98] transition-all"
           >
-            <div>
-              <h3 className="font-semibold">New Expense</h3>
-              <p className="text-sm text-muted-foreground">
-                Enter the expense information and select how it should be split.
-              </p>
+            <Plus className="h-4 w-4" />
+            <span>Add Expense</span>
+          </button>
+        </div>
+      </div>
+
+      {/* 2-Column Responsive Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left 2 Columns: Room Expenses */}
+        <div className="lg:col-span-2 space-y-4">
+          <div className="rounded-[28px] bg-white p-6 border border-gray-100 shadow-[0_4px_24px_-4px_rgba(0,0,0,0.04)]">
+            <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+              <h2 className="text-base font-bold text-gray-900">
+                Expenses in this Circle ({expenses.length})
+              </h2>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Input
-                id="expense-title"
-                name="title"
-                label="Expense Title"
-                placeholder="e.g. Dinner, Groceries"
-                value={form.title}
-                onChange={updateForm}
-                required
-              />
-
-              <Input
-                id="expense-amount"
-                name="total_amount"
-                label={`Total Amount (${room.defaultCurrency || "INR"})`}
-                type="number"
-                min="0.01"
-                step="0.01"
-                placeholder="0.00"
-                value={form.total_amount}
-                onChange={updateForm}
-                required
-              />
-
-              <Input
-                id="expense-description"
-                name="description"
-                label="Description (Optional)"
-                placeholder="Add some details"
-                value={form.description}
-                onChange={updateForm}
-              />
-
-              <Input
-                id="expense-date"
-                name="expense_date"
-                label="Expense Date"
-                type="date"
-                value={form.expense_date}
-                onChange={updateForm}
-                required
-              />
-            </div>
-
-            <div>
-              <label className="mb-1.5 block text-sm font-medium">
-                Category
-              </label>
-
-              <select
-                name="category_id"
-                value={form.category_id}
-                onChange={updateForm}
-                className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm"
-              >
-                <option value="">Select a category</option>
-                {categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.icon || "📦"} {category.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="mb-1.5 block text-sm font-medium">
-                Split Method
-              </label>
-
-              <select
-                name="split_method"
-                value={form.split_method}
-                onChange={updateForm}
-                className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm"
-              >
-                {SPLIT_METHODS.map((method) => (
-                  <option key={method.value} value={method.value}>
-                    {method.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <h4 className="mb-2 text-sm font-semibold">
-                Participants
-              </h4>
-
-              <p className="mb-3 text-xs text-muted-foreground">
-                Select the members who share this expense. You must include yourself because you are recording and paying for this expense.
-              </p>
-
-              <div className="space-y-3 rounded-lg border border-border bg-white p-4">
-                {room.members.map((member) => {
-                  const selected = selectedParticipants.includes(
-                    String(member.id)
-                  );
+            {expenses.length === 0 ? (
+              <div className="py-12 text-center">
+                <p className="text-sm text-gray-400">No expenses recorded yet in this room.</p>
+                <button
+                  type="button"
+                  onClick={() => setShowAddExpense(true)}
+                  className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-[#00C4A7] text-white px-4 py-2 text-xs font-bold"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>Record First Expense</span>
+                </button>
+              </div>
+            ) : (
+              <div className="mt-4 space-y-3">
+                {expenses.map((exp) => {
+                  const Icon = getCategoryIcon(exp.title, exp.categoryName);
+                  const isExpanded = expandedExpense === exp.id;
+                  const details = expenseDetails[exp.id];
 
                   return (
                     <div
-                      key={member.id}
-                      className="flex flex-wrap items-center justify-between gap-3"
+                      key={exp.id}
+                      className="rounded-2xl border border-gray-100 p-4 hover:bg-gray-50/60 transition-colors"
                     >
-                      <label className="flex items-center gap-3 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={selected}
-                          disabled={String(member.id) === String(user?.id ?? user?.userId ?? "")}
-                          onChange={() => toggleParticipant(String(member.id))}
-                          className="h-4 w-4 rounded"
-                        />
-                        <Avatar name={member.name} size="sm" />
-                        <span>{member.name}</span>
-                      </label>
+                      <div
+                        onClick={() => toggleExpense(exp.id)}
+                        className="flex items-center justify-between cursor-pointer"
+                      >
+                        <div className="flex items-center gap-3.5">
+                          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white border border-gray-100 text-gray-800 shadow-2xs shrink-0">
+                            <Icon className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-gray-900">{exp.title}</p>
+                            <p className="text-xs text-gray-400 font-medium">
+                              Paid by {exp.paidByName || "Member"} · {exp.expenseDate || "Recent"}
+                            </p>
+                          </div>
+                        </div>
 
-                      {selected && form.split_method !== "EQUAL" && (
-                        <div className="w-36">
-                          <input
-                            type="number"
-                            min="0.0001"
-                            step={form.split_method === "EXACT" ? "0.01" : "0.0001"}
-                            placeholder={
-                              form.split_method === "EXACT"
-                                ? "Amount"
-                                : form.split_method === "PERCENTAGE"
-                                  ? "%"
-                                  : "Shares"
-                            }
-                            value={participantValues[member.id] ?? ""}
-                            onChange={(event) =>
-                              updateParticipantValue(
-                                String(member.id),
-                                event.target.value
-                              )
-                            }
-                            className="h-9 w-full rounded-md border border-input px-2 text-sm"
-                          />
+                        <div className="flex items-center gap-3">
+                          <span className="text-base font-black text-gray-900">
+                            ${Number(exp.totalAmount || 0).toFixed(2)}
+                          </span>
+                          {isExpanded ? (
+                            <ChevronUp className="h-4 w-4 text-gray-400" />
+                          ) : (
+                            <ChevronDown className="h-4 w-4 text-gray-400" />
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Expandable Split Details */}
+                      {isExpanded && (
+                        <div className="mt-4 pt-4 border-t border-gray-100 text-xs text-gray-600 space-y-2.5 animate-in fade-in">
+                          <div className="flex justify-between">
+                            <span className="text-gray-400 font-medium">Split Method:</span>
+                            <span className="font-bold text-gray-800">{exp.splitMethod || "Equal"}</span>
+                          </div>
+                          {details?.splits && (
+                            <div>
+                              <p className="text-[10px] font-bold uppercase text-gray-400 mb-2">
+                                Participant Splits:
+                              </p>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {details.splits.map((s) => (
+                                  <div
+                                    key={s.id}
+                                    className="flex items-center justify-between p-2 rounded-xl bg-gray-50 text-xs"
+                                  >
+                                    <span className="font-semibold text-gray-800">{s.userName || "Member"}</span>
+                                    <span className="font-black text-gray-900">
+                                      ${Number(s.shareAmount || 0).toFixed(2)}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
                   );
                 })}
               </div>
-
-              {form.split_method === "PERCENTAGE" && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  All participant percentages must add up to exactly 100%.
-                </p>
-              )}
-
-              {form.split_method === "EXACT" && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  All participant amounts must add up to the expense total.
-                </p>
-              )}
-
-              {form.split_method === "SHARES" && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Enter the relative number of shares for each participant.
-                </p>
-              )}
-            </div>
-
-            <Input
-              id="expense-notes"
-              name="notes"
-              label="Notes (Optional)"
-              placeholder="Additional notes"
-              value={form.notes}
-              onChange={updateForm}
-            />
-
-            <div className="flex flex-wrap justify-end gap-3">
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => setShowExpenseForm(false)}
-                disabled={isCreating}
-              >
-                Cancel
-              </Button>
-
-              <Button type="submit" loading={isCreating}>
-                Create Expense
-              </Button>
-            </div>
-          </form>
-        )}
-
-        {/* EXPENSE LIST */}
-        <div className="mt-6">
-          {isLoadingExpenses ? (
-            <div className="py-10 text-center">
-              <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
-              <p className="mt-3 text-sm text-muted-foreground">
-                Loading expenses...
-              </p>
-            </div>
-          ) : expenses.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-border px-6 py-10 text-center">
-              <Receipt className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
-              <h3 className="font-medium">No expenses yet</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Add your first expense to start tracking shared costs.
-              </p>
-
-              {!showExpenseForm && (
-                <Button
-                  className="mt-4"
-                  onClick={() => setShowExpenseForm(true)}
-                >
-                  <Plus className="h-4 w-4" />
-                  Add First Expense
-                </Button>
-              )}
-            </div>
-          ) : (
-            <div className="divide-y divide-border">
-              {expenses.map((expense) => {
-                const isExpanded = expandedExpense === expense.id;
-                const details = expenseDetails[expense.id];
-
-                return (
-                  <div key={expense.id} className="py-4 first:pt-0 last:pb-0">
-                    <button
-                      type="button"
-                      onClick={() => toggleExpenseDetails(expense.id)}
-                      className="flex w-full flex-wrap items-center justify-between gap-4 text-left"
-                    >
-                      <div className="flex min-w-0 items-center gap-3">
-                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-muted text-xl">
-                          {expense.categoryIcon}
-                        </div>
-
-                        <div className="min-w-0">
-                          <p className="truncate font-semibold">
-                            {expense.title}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            {expense.categoryName} · {formatDate(expense.expenseDate)}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            Paid by {expense.paidByName || "Unknown"}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-3">
-                        <div className="text-right">
-                          <p className="font-semibold">
-                            {formatMoney(expense.totalAmount, expense.currency)}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {expense.participantCount} participants
-                          </p>
-                        </div>
-
-                        {isExpanded ? (
-                          <ChevronUp className="h-4 w-4" />
-                        ) : (
-                          <ChevronDown className="h-4 w-4" />
-                        )}
-                      </div>
-                    </button>
-
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <StatusBadge status={expense.status} />
-                      <span className="text-xs text-muted-foreground">
-                        {expense.splitMethod} split
-                      </span>
-                    </div>
-
-                    {isExpanded && (
-                      <div className="mt-4 rounded-lg border border-border bg-muted/30 p-4">
-                        {loadingDetails === expense.id ? (
-                          <p className="text-sm text-muted-foreground">
-                            Loading expense details...
-                          </p>
-                        ) : details ? (
-                          <div className="space-y-3">
-                            {details.description && (
-                              <p className="text-sm text-muted-foreground">
-                                {details.description}
-                              </p>
-                            )}
-
-                            <h4 className="font-semibold text-sm">
-                              Participant Breakdown
-                            </h4>
-
-                            {details.splits.map((split) => (
-                              <div
-                                key={split.id}
-                                className="flex items-center justify-between gap-3 text-sm"
-                              >
-                                <div>
-                                  <p className="font-medium">
-                                    {split.userName}
-                                    {split.isPayer && (
-                                      <span className="ml-2 text-xs text-brand-700">
-                                        Paid
-                                      </span>
-                                    )}
-                                  </p>
-                                  <p className="text-xs text-muted-foreground">
-                                    {split.userEmail}
-                                  </p>
-                                </div>
-
-                                <p className="font-semibold">
-                                  {formatMoney(
-                                    split.shareAmount,
-                                    details.currency
-                                  )}
-                                </p>
-                              </div>
-                            ))}
-
-                            {details.notes && (
-                              <div className="border-t border-border pt-3">
-                                <p className="text-xs text-muted-foreground">
-                                  Notes
-                                </p>
-                                <p className="text-sm">{details.notes}</p>
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <p className="text-sm text-muted-foreground">
-                            Unable to load details.
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+            )}
+          </div>
         </div>
-      </Card>
+
+        {/* Right 1 Column: Room Members */}
+        <div className="space-y-4">
+          <div className="rounded-[28px] bg-white p-6 border border-gray-100 shadow-[0_4px_24px_-4px_rgba(0,0,0,0.04)]">
+            <h3 className="text-sm font-bold text-gray-900 mb-4">
+              Circle Members ({room.members?.length || 1})
+            </h3>
+
+            <div className="space-y-3">
+              {(room.members || []).map((m) => (
+                <div key={m.id} className="flex items-center justify-between p-2 rounded-2xl hover:bg-gray-50">
+                  <div className="flex items-center gap-3">
+                    <Avatar name={m.name} size="sm" shape="squircle" />
+                    <div>
+                      <p className="text-xs font-bold text-gray-900">{m.name}</p>
+                      <p className="text-[10px] text-gray-400 truncate max-w-[140px]">{m.email}</p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-teal-600 bg-teal-50 px-2 py-0.5 rounded-full">
+                    Member
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <QuickExpenseModal
+        isOpen={showAddExpense}
+        onClose={() => setShowAddExpense(false)}
+        onCreated={loadRoom}
+      />
     </div>
   );
 }

@@ -3,16 +3,19 @@ import Logo from "../components/common/Logo";
 
 export default function NotFound() {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-canvas px-6 text-center">
+    <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-[#ECEEF2] px-6 text-center">
       <Logo />
-      <div>
-        <p className="text-sm font-semibold text-brand-600">404</p>
-        <h1 className="mt-2 text-3xl font-bold tracking-tight text-foreground">Page not found</h1>
-        <p className="mt-2 text-sm text-muted-foreground">The page you're looking for doesn't exist or has moved.</p>
+      <div className="rounded-[32px] bg-white p-8 shadow-soft border border-gray-100 max-w-sm w-full">
+        <p className="text-sm font-bold text-[#00C4A7] uppercase tracking-wider">404 Error</p>
+        <h1 className="mt-2 text-2xl font-black tracking-tight text-gray-900">Page Not Found</h1>
+        <p className="mt-2 text-xs text-gray-400 font-medium">The screen you are looking for does not exist or has been moved.</p>
+        <Link
+          to="/"
+          className="mt-6 inline-flex w-full items-center justify-center rounded-2xl bg-[#18191E] py-3.5 text-xs font-bold uppercase tracking-wider text-white hover:bg-black transition-colors"
+        >
+          Back to Home
+        </Link>
       </div>
-      <Link to="/" className="text-sm font-semibold text-brand-600 hover:text-brand-700">
-        Back to dashboard
-      </Link>
     </div>
   );
 }

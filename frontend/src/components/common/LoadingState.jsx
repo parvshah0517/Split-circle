@@ -7,7 +7,7 @@ export default function LoadingState({ label = "Loading...", className }) {
       role="status"
       className={cn("flex flex-col items-center justify-center gap-3 p-10 text-sm text-muted-foreground", className)}
     >
-      <Spinner className="h-6 w-6 text-brand-600" />
+      <Spinner className="h-6 w-6 text-[#00C4A7]" />
       <span>{label}</span>
     </div>
   );

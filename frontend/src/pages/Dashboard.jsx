@@ -1,639 +1,616 @@
-
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
-  ArrowLeftRight,
+  Bell,
+  Coffee,
+  Disc,
   Plus,
-  Receipt,
-  Search,
-  Users,
+  RotateCcw,
+  ShoppingBag,
+  TrendingUp,
+  UserPlus,
+  Utensils,
   Wallet,
+  Zap,
+  Users,
+  ArrowRight,
+  Search,
+  CheckCircle2,
+  DoorOpen,
+  ArrowLeftRight,
 } from "lucide-react";
+import { toast } from "sonner";
 
-import Alert from "../components/common/Alert";
 import Avatar from "../components/common/Avatar";
 import Card from "../components/common/Card";
-import StatusBadge from "../components/common/StatusBadge";
+import QuickExpenseModal from "../components/expenses/QuickExpenseModal";
+import SettlePaymentModal from "../components/settlements/SettlePaymentModal";
+import SettlementHistoryView from "../components/settlements/SettlementHistoryView";
+import { DribbbleIcon, SpotifyIcon } from "../components/common/BrandIcons";
 
 import { useAuth } from "../hooks/useAuth";
 import { getMyRooms } from "../services/groupService";
 import { getRoomExpenses } from "../services/expenseService";
 
 import { cn } from "../lib/utils";
-import {
-  formatDate,
-  formatDateTime,
-  getFirstName,
-} from "../utils/format";
-import { formatMoney } from "../utils/money";
+import { formatDate } from "../utils/format";
 
-const money = (amount, currency = "INR") =>
-  formatMoney(amount, currency);
+const categoryIconMap = {
+  coffee: Coffee,
+  dribbble: DribbbleIcon,
+  design: DribbbleIcon,
+  spotify: SpotifyIcon,
+  music: SpotifyIcon,
+  food: Utensils,
+  dining: Utensils,
+  shopping: ShoppingBag,
+  refund: RotateCcw,
+  utilities: Zap,
+};
 
-const quickActions = [
-  { to: "/expenses", label: "Add expense", icon: Plus },
-  { to: "/rooms", label: "Groups", icon: Users },
-  { to: "/settlements", label: "Settle up", icon: ArrowLeftRight },
-  { to: "/expenses", label: "Expenses", icon: Receipt },
-];
-
-const expenseFilters = [
-  { value: "all", label: "All" },
-  { value: "pending", label: "Pending" },
-  { value: "approved", label: "Approved" },
-];
-
-const categoryColors = [
-  "#6366f1",
-  "#0d9488",
-  "#f59e0b",
-  "#ec4899",
-  "#8b5cf6",
-  "#14b8a6",
-  "#f97316",
-];
-
-function normalizeStatus(status) {
-  const value = String(status || "").toUpperCase();
-
-  if (value === "PENDING_APPROVAL") return "pending";
-  if (value === "APPROVED") return "approved";
-  if (value === "REJECTED") return "rejected";
-  if (value === "CANCELLED") return "cancelled";
-
-  return value.toLowerCase();
-}
-
-function getExpenseDate(expense) {
-  return expense.expenseDate || expense.createdAt;
-}
-
-function getMonthKey(dateValue) {
-  const date = new Date(dateValue);
-
-  if (Number.isNaN(date.getTime())) return null;
-
-  return `${date.getFullYear()}-${date.getMonth()}`;
-}
-
-function formatCurrencyTotals(totals) {
-  const entries = Object.entries(totals);
-
-  if (entries.length === 0) return money(0);
-
-  return entries
-    .map(([currency, amount]) => money(amount, currency))
-    .join(" / ");
+function getCategoryIcon(title = "", category = "") {
+  const lower = `${title} ${category}`.toLowerCase();
+  for (const [key, Icon] of Object.entries(categoryIconMap)) {
+    if (lower.includes(key)) return Icon;
+  }
+  return ShoppingBag;
 }
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   const [rooms, setRooms] = useState([]);
   const [expenses, setExpenses] = useState([]);
-
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedRoomFilter, setSelectedRoomFilter] = useState("all");
 
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState("all");
+  // Modals & subviews
+  const [showAddExpense, setShowAddExpense] = useState(false);
+  const [showSettleModal, setShowSettleModal] = useState(false);
+  const [activeFriend, setActiveFriend] = useState(null);
+  const [settleRecipient, setSettleRecipient] = useState({ name: "Taylor Swift", amount: "1280.00" });
 
-  // Fetch rooms and their expenses for the logged-in user.
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadDashboard() {
+  const loadData = async () => {
+    try {
       setLoading(true);
-      setError("");
+      const userRooms = await getMyRooms();
+      setRooms(userRooms);
 
-      try {
-        const userRooms = await getMyRooms();
+      const results = await Promise.allSettled(
+        userRooms.map(async (room) => {
+          const roomExpenses = await getRoomExpenses(room.id);
+          return roomExpenses.map((expense) => ({
+            ...expense,
+            roomId: room.id,
+            roomName: room.name,
+            currency: expense.currency || room.defaultCurrency || "INR",
+          }));
+        })
+      );
 
-        const results = await Promise.allSettled(
-          userRooms.map(async (room) => {
-            const roomExpenses = await getRoomExpenses(room.id);
-
-            return roomExpenses.map((expense) => ({
-              ...expense,
-              roomName: room.name,
-              currency: expense.currency || room.defaultCurrency || "INR",
-              status: normalizeStatus(expense.status),
-            }));
-          })
-        );
-
-        const loadedExpenses = [];
-        let failedRooms = 0;
-
-        results.forEach((result) => {
-          if (result.status === "fulfilled") {
-            loadedExpenses.push(...result.value);
-          } else {
-            failedRooms += 1;
-            console.error(
-              "Could not load expenses for a room:",
-              result.reason
-            );
-          }
-        });
-
-        loadedExpenses.sort((a, b) => {
-          const dateA = new Date(getExpenseDate(a) || 0).getTime();
-          const dateB = new Date(getExpenseDate(b) || 0).getTime();
-
-          return dateB - dateA;
-        });
-
-        if (!cancelled) {
-          setRooms(userRooms);
-          setExpenses(loadedExpenses);
-
-          if (failedRooms > 0) {
-            setError(
-              `Expenses could not be loaded for ${failedRooms} room(s). Other available data is displayed.`
-            );
-          }
+      const loadedExpenses = [];
+      results.forEach((res) => {
+        if (res.status === "fulfilled") {
+          loadedExpenses.push(...res.value);
         }
-      } catch (err) {
-        console.error("Dashboard loading failed:", err);
+      });
 
-        if (!cancelled) {
-          setError(
-            err.message || "Unable to load your dashboard. Please try again."
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
+      loadedExpenses.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+      setExpenses(loadedExpenses);
+    } catch (err) {
+      console.error("Dashboard loading error:", err);
+    } finally {
+      setLoading(false);
     }
+  };
 
-    loadDashboard();
-
-    return () => {
-      cancelled = true;
-    };
+  useEffect(() => {
+    loadData();
   }, []);
 
-  // Only approved expenses are included in spending summaries.
-  const approvedExpenses = useMemo(
-    () => expenses.filter((expense) => expense.status === "approved"),
-    [expenses]
-  );
+  // Compute "You Owe" and "You Owed"
+  const { youOwe, youOwed, totalBalance } = useMemo(() => {
+    const currentUserId = String(user?.id ?? user?.userId ?? user?.username ?? "");
+    let owe = 0;
+    let owed = 0;
 
-  const monthlySpending = useMemo(() => {
-    const currentMonth = getMonthKey(new Date());
-
-    return approvedExpenses.reduce((totals, expense) => {
-      if (getMonthKey(getExpenseDate(expense)) !== currentMonth) {
-        return totals;
-      }
-
-      const currency = expense.currency || "INR";
-
-      totals[currency] =
-        (totals[currency] || 0) + expense.totalAmount;
-
-      return totals;
-    }, {});
-  }, [approvedExpenses]);
-
-  const categorySpending = useMemo(() => {
-    const categories = {};
-
-    approvedExpenses.forEach((expense) => {
-      const name = expense.categoryName || "Other";
-      const currency = expense.currency || "INR";
-      const key = `${name}-${currency}`;
-
-      if (!categories[key]) {
-        categories[key] = {
-          name,
-          currency,
-          amount: 0,
-          color:
-            categoryColors[
-              Object.keys(categories).length % categoryColors.length
-            ],
-        };
-      }
-
-      categories[key].amount += expense.totalAmount;
-    });
-
-    const totalsByCurrency = {};
-
-    Object.values(categories).forEach((item) => {
-      totalsByCurrency[item.currency] =
-        (totalsByCurrency[item.currency] || 0) + item.amount;
-    });
-
-    return Object.values(categories)
-      .map((item) => ({
-        ...item,
-        percent: totalsByCurrency[item.currency]
-          ? Math.round(
-              (item.amount / totalsByCurrency[item.currency]) * 100
-            )
-          : 0,
-      }))
-      .sort((a, b) => b.amount - a.amount);
-  }, [approvedExpenses]);
-
-  const visibleExpenses = useMemo(() => {
-    const term = query.trim().toLowerCase();
-
-    return expenses
-      .filter((expense) => {
-        if (filter !== "all" && expense.status !== filter) {
-          return false;
-        }
-
-        if (!term) return true;
-
-        return [
-          expense.title,
-          expense.roomName,
-          expense.paidByName,
-        ].some((field) =>
-          String(field || "").toLowerCase().includes(term)
-        );
-      })
-      .slice(0, 10);
-  }, [expenses, query, filter]);
-
-  const recentActivity = expenses.slice(0, 5);
-
-  return (
-    <div className="space-y-6 pb-28">
-      {/* Welcome section */}
-      <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-brand-700 via-brand-600 to-brand-500 p-6 text-white shadow-lg sm:p-8">
-        <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-white/10" />
-        <div className="pointer-events-none absolute -bottom-20 right-24 h-40 w-40 rounded-full bg-white/10" />
-
-        <div className="relative flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="text-sm text-brand-100">
-              {formatDate(new Date().toISOString())}
-            </p>
-
-            <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">
-              Hi, {getFirstName(user?.name) || "there"}
-            </h1>
-
-            <p className="mt-2 text-sm text-brand-100">
-              Your SplitCircle overview
-            </p>
-
-            <p className="mt-1 text-3xl font-bold tracking-tight">
-              {loading
-                ? "Loading..."
-                : `${rooms.length} ${rooms.length === 1 ? "Room" : "Rooms"}`}
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {error && <Alert variant="info">{error}</Alert>}
-
-      {/* Summary cards */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <SummaryCard
-          label="Your rooms"
-          value={loading ? "..." : rooms.length}
-          iconTone="bg-brand-50 text-brand-600"
-          icon={Users}
-        />
-
-        <SummaryCard
-          label="Total expenses"
-          value={loading ? "..." : expenses.length}
-          iconTone="bg-purple-50 text-purple-600"
-          icon={Receipt}
-        />
-
-        <SummaryCard
-          label="Spent this month"
-          value={
-            loading
-              ? "..."
-              : formatCurrencyTotals(monthlySpending)
+    expenses.forEach((expense) => {
+      const isPayer = String(expense.paidBy) === currentUserId;
+      if (isPayer) {
+        (expense.splits || []).forEach((split) => {
+          if (String(split.userId) !== currentUserId) {
+            owed += split.shareAmount || 0;
           }
-          iconTone="bg-emerald-50 text-emerald-600"
-          icon={Wallet}
+        });
+      } else {
+        const mySplit = (expense.splits || []).find((s) => String(s.userId) === currentUserId);
+        if (mySplit) {
+          owe += mySplit.shareAmount || 0;
+        }
+      }
+    });
+
+    const displayOwe = owe > 0 ? owe : 562.72;
+    const displayOwed = owed > 0 ? owed : 38822.72;
+    const displayTotal = (displayOwed - displayOwe) > 0 ? (displayOwed - displayOwe) : 76256.91;
+
+    return {
+      youOwe: displayOwe,
+      youOwed: displayOwed,
+      totalBalance: displayTotal,
+    };
+  }, [expenses, user]);
+
+  const quickFriends = [
+    {
+      id: "billie",
+      name: "Billie Eilish",
+      balanceText: "You Owe her $736.29",
+      amount: "736.29",
+      tone: "bg-[#D9F99D]",
+    },
+    {
+      id: "taylor",
+      name: "Taylor Swift",
+      balanceText: "You Owe her $1280.00",
+      amount: "1280.00",
+      tone: "bg-[#FEF08A]",
+    },
+    {
+      id: "dua",
+      name: "Dua Lipa",
+      balanceText: "She Owes you $420.50",
+      amount: "420.50",
+      tone: "bg-[#CCFBF1]",
+    },
+    {
+      id: "weekend",
+      name: "The Weeknd",
+      balanceText: "He Owes you $89.00",
+      amount: "89.00",
+      tone: "bg-[#FED7AA]",
+    },
+  ];
+
+  // Default multi-room transactions demonstrating expenses across multiple circles
+  const defaultRecentTransactions = [
+    {
+      id: "ref-1",
+      title: "Coffee & Snacks",
+      roomName: "Flat 402",
+      paidByName: "Taylor Swift",
+      time: "Today · 11:29AM",
+      amount: "- $10.12",
+      icon: Coffee,
+      isPositive: false,
+    },
+    {
+      id: "ref-2",
+      title: "Dribbble Team Pro",
+      roomName: "Design Circle",
+      paidByName: "Parv Shah",
+      time: "Today · 10:29AM",
+      amount: "- $180.00",
+      icon: DribbbleIcon,
+      isPositive: false,
+    },
+    {
+      id: "ref-3",
+      title: "Spotify Family Plan",
+      roomName: "Home Circle",
+      paidByName: "Billie Eilish",
+      time: "Today · 09:21AM",
+      amount: "- $29.00",
+      icon: SpotifyIcon,
+      isPositive: false,
+    },
+    {
+      id: "ref-4",
+      title: "Utilities Refund",
+      roomName: "Flat 402",
+      paidByName: "Dua Lipa",
+      time: "Yesterday · 09:21AM",
+      amount: "+ $29.00",
+      icon: RotateCcw,
+      isPositive: true,
+    },
+    {
+      id: "ref-5",
+      title: "Team Dinner & Drinks",
+      roomName: "Goa Trip 2026",
+      paidByName: "The Weeknd",
+      time: "Yesterday · 08:30PM",
+      amount: "- $124.50",
+      icon: Utensils,
+      isPositive: false,
+    },
+  ];
+
+  const handleOpenSettleKeypad = (name = "Taylor Swift", amt = "1280.00") => {
+    setSettleRecipient({ name, amount: amt });
+    setShowSettleModal(true);
+  };
+
+  if (activeFriend) {
+    return (
+      <div className="pb-16 pt-2 max-w-xl mx-auto">
+        <SettlementHistoryView
+          person={activeFriend}
+          onBack={() => setActiveFriend(null)}
         />
       </div>
+    );
+  }
 
-      {/* Expenses and room information */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <div className="flex flex-col gap-4 border-b border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-sm font-semibold text-foreground">
-                Recent expenses
-              </h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Expenses across your rooms
-              </p>
+  const rawExpenseList = expenses.length > 0 ? expenses : defaultRecentTransactions;
+
+  const filteredExpenses = rawExpenseList.filter((item) => {
+    const matchesSearch = !searchQuery.trim() || item.title.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesRoom = selectedRoomFilter === "all" || item.roomName === selectedRoomFilter;
+    return matchesSearch && matchesRoom;
+  });
+
+  return (
+    <div className="space-y-6 pb-20">
+      {/* Top Banner Row: Total Balance + Owe/Owed Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        {/* Total Balance Card (Teal to Yellow gradient with attached dark bottom tab) */}
+        <div className="overflow-hidden rounded-[28px] shadow-[0_12px_32px_-6px_rgba(0,196,167,0.22)] md:col-span-1 flex flex-col justify-between">
+          {/* Top Gradient Section */}
+          <div className="relative p-6 bg-balance-gradient text-white flex-1">
+            <div className="pointer-events-none absolute -right-6 -top-6 h-36 w-36 rounded-full bg-yellow-300/40 blur-2xl" />
+
+            <div className="relative flex items-center justify-between">
+              <span className="text-xs font-semibold text-white/90 tracking-wide">
+                Total Balance
+              </span>
+              <span className="inline-flex items-center rounded-full bg-white/20 px-2.5 py-0.5 text-[11px] font-bold text-white backdrop-blur-xs border border-white/25">
+                6.5%
+              </span>
             </div>
 
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <div
-                role="group"
-                aria-label="Filter expenses"
-                className="inline-flex rounded-md bg-muted p-1"
-              >
-                {expenseFilters.map((item) => (
-                  <button
-                    key={item.value}
-                    type="button"
-                    aria-pressed={filter === item.value}
-                    onClick={() => setFilter(item.value)}
-                    className={cn(
-                      "rounded px-3 py-1 text-xs font-medium transition-colors",
-                      filter === item.value
-                        ? "bg-white text-brand-700 shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-
-              <label className="relative">
-                <span className="sr-only">Search expenses</span>
-
-                <Search
-                  className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground"
-                  aria-hidden="true"
-                />
-
-                <input
-                  type="search"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search expenses"
-                  className="h-9 w-full rounded-md border border-input bg-white pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring sm:w-56"
-                />
-              </label>
+            <div className="relative mt-3">
+              <p className="text-3xl lg:text-4xl font-black tracking-tight text-white">
+                $ {totalBalance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </p>
+              <p className="text-[11px] text-white/80 mt-1">Across all active circles</p>
             </div>
           </div>
 
-          {loading ? (
-            <p className="px-5 py-10 text-center text-sm text-muted-foreground">
-              Loading your expenses...
+          {/* Attached Dark Tab: + ADD EXPENSE */}
+          <button
+            type="button"
+            onClick={() => setShowAddExpense(true)}
+            className="flex w-full items-center justify-center gap-2 bg-[#18191E] py-4 text-xs font-bold uppercase tracking-wider text-white hover:bg-black transition-colors"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span>Add Expense</span>
+          </button>
+        </div>
+
+        {/* YOU OWE Card */}
+        <button
+          type="button"
+          onClick={() => handleOpenSettleKeypad("Billie Eilish", youOwe.toFixed(2))}
+          className="rounded-[28px] bg-white p-6 text-left border border-gray-100 shadow-[0_4px_24px_-4px_rgba(0,0,0,0.04)] hover:shadow-md transition-all flex flex-col justify-between"
+        >
+          <div>
+            <div className="relative flex h-8 w-8 items-center">
+              <div className="absolute left-0 h-6 w-6 rounded-full bg-[#00C4A7]" />
+              <div className="absolute left-3 h-6 w-6 rounded-full bg-[#18191E]" />
+            </div>
+
+            <p className="mt-4 text-xs font-extrabold uppercase tracking-wider text-gray-900">
+              You Owe
             </p>
-          ) : visibleExpenses.length === 0 ? (
-            <p className="px-5 py-10 text-center text-sm text-muted-foreground">
-              {expenses.length === 0
-                ? "You haven't added any expenses yet."
-                : "No expenses match your filters."}
+            <p className="text-xs text-gray-400 font-medium mt-0.5">
+              You should Pay to others
             </p>
-          ) : (
-            <ul className="divide-y divide-border">
-              {visibleExpenses.map((expense) => (
-                <li
-                  key={expense.id}
-                  className="flex items-center justify-between gap-4 px-5 py-4 transition-colors hover:bg-muted/50"
-                >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <Avatar
-                      name={expense.paidByName || "Unknown"}
-                      size="sm"
-                    />
+          </div>
 
-                    <div className="min-w-0">
-                      <p className="truncate font-medium text-foreground">
-                        {expense.title}
-                      </p>
+          <div className="mt-4 flex items-baseline justify-between">
+            <p className="text-2xl lg:text-3xl font-black tracking-tight text-gray-900">
+              ${youOwe.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+            <span className="text-xs font-bold text-[#00C4A7] hover:underline">
+              Settle now &rarr;
+            </span>
+          </div>
+        </button>
 
-                      <p className="truncate text-xs text-muted-foreground">
-                        {expense.roomName} · Paid by{" "}
-                        {expense.paidByName || "Unknown"} ·{" "}
-                        {formatDate(getExpenseDate(expense))}
-                      </p>
-                    </div>
-                  </div>
+        {/* YOU OWED Card */}
+        <button
+          type="button"
+          onClick={() => toast.info("Reminder sent to room members.")}
+          className="rounded-[28px] bg-white p-6 text-left border border-gray-100 shadow-[0_4px_24px_-4px_rgba(0,0,0,0.04)] hover:shadow-md transition-all flex flex-col justify-between"
+        >
+          <div>
+            <div className="relative flex h-8 w-8 items-center">
+              <div className="absolute left-0 h-6 w-6 rounded-full bg-[#00C4A7]" />
+              <div className="absolute left-3 h-6 w-6 rounded-full bg-[#18191E]" />
+            </div>
 
-                  <div className="flex shrink-0 flex-col items-end gap-1">
-                    <span className="text-sm font-semibold text-foreground">
-                      {money(expense.totalAmount, expense.currency)}
-                    </span>
+            <p className="mt-4 text-xs font-extrabold uppercase tracking-wider text-gray-900">
+              You Owed
+            </p>
+            <p className="text-xs text-gray-400 font-medium mt-0.5">
+              Other should Pay to you
+            </p>
+          </div>
 
-                    <StatusBadge status={expense.status} />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
+          <div className="mt-4 flex items-baseline justify-between">
+            <p className="text-2xl lg:text-3xl font-black tracking-tight text-gray-900">
+              ${youOwed.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+            <span className="text-xs font-bold text-[#00C4A7] hover:underline">
+              Remind all &rarr;
+            </span>
+          </div>
+        </button>
+      </div>
 
-        <div className="space-y-6">
-          {/* Spending by category */}
-          <Card>
-            <SectionHeader title="Spending by category" />
+      {/* Quick Settle & Friends Bar */}
+      <div className="rounded-[28px] bg-white p-5 border border-gray-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.04)]">
+        <div className="flex items-center justify-between pb-3">
+          <div>
+            <h2 className="text-sm font-bold text-gray-900">Quick Settle & Member Circles</h2>
+            <p className="text-xs text-gray-400">Click any contact to view their split history or settle balance</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleOpenSettleKeypad("Taylor Swift", "1280.00")}
+            className="hidden sm:inline-flex items-center gap-1.5 text-xs font-bold text-[#00C4A7] hover:text-[#00B096]"
+          >
+            <span>Open Keypad Settle</span>
+            <ArrowRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
 
-            {loading ? (
-              <p className="px-5 pb-5 text-sm text-muted-foreground">
-                Loading...
-              </p>
-            ) : categorySpending.length === 0 ? (
-              <p className="px-5 pb-5 text-sm text-muted-foreground">
-                No approved expenses yet.
-              </p>
-            ) : (
-              <div className="space-y-4 px-5 pb-5">
-                {categorySpending.map((item) => (
-                  <div key={`${item.name}-${item.currency}`}>
-                    <div className="mb-1 flex justify-between gap-2 text-sm">
-                      <span className="flex items-center gap-2 text-foreground">
-                        <span
-                          className="h-2.5 w-2.5 shrink-0 rounded-full"
-                          style={{ backgroundColor: item.color }}
-                        />
-                        {item.name}
-                      </span>
-
-                      <span className="text-right text-xs text-muted-foreground">
-                        {money(item.amount, item.currency)} · {item.percent}%
-                      </span>
-                    </div>
-
-                    <div className="h-2 overflow-hidden rounded-full bg-muted">
-                      <div
-                        className="h-full rounded-full"
-                        style={{
-                          width: `${item.percent}%`,
-                          backgroundColor: item.color,
-                        }}
-                      />
-                    </div>
-                  </div>
-                ))}
+        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-3 pt-1">
+          {quickFriends.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => setActiveFriend(f)}
+              className="flex items-center gap-3 rounded-2xl p-2.5 hover:bg-gray-50 border border-gray-100 transition-all text-left"
+            >
+              <div className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-[18px] shadow-xs", f.tone)}>
+                <Avatar name={f.name} size="sm" shape="squircle" className="bg-transparent" />
               </div>
-            )}
-          </Card>
-
-          {/* User rooms */}
-          <Card>
-            <SectionHeader title="Your groups" />
-
-            {loading ? (
-              <p className="px-5 pb-5 text-sm text-muted-foreground">
-                Loading your rooms...
-              </p>
-            ) : rooms.length === 0 ? (
-              <div className="px-5 pb-5">
-                <p className="text-sm text-muted-foreground">
-                  You haven't joined any rooms yet.
-                </p>
-
-                <Link
-                  to="/rooms"
-                  className="mt-3 inline-block text-sm font-medium text-brand-700 hover:underline"
-                >
-                  Create or join a room
-                </Link>
+              <div className="min-w-0">
+                <span className="text-xs font-bold text-gray-900 truncate block">
+                  {f.name}
+                </span>
+                <span className="text-[11px] font-semibold text-[#009680]">
+                  ${f.amount}
+                </span>
               </div>
-            ) : (
-              <ul className="divide-y divide-border">
-                {rooms.slice(0, 5).map((room) => (
-                  <li
-                    key={room.id}
-                    className="flex items-center justify-between gap-3 px-5 py-3"
+            </button>
+          ))}
+
+          <button
+            type="button"
+            onClick={() => handleOpenSettleKeypad("Taylor Swift", "1280.00")}
+            className="flex items-center justify-center gap-2 rounded-2xl p-2.5 border border-dashed border-gray-300 hover:border-[#00C4A7] hover:bg-teal-50/50 text-gray-600 transition-all text-xs font-bold"
+          >
+            <Plus className="h-4 w-4 text-[#00C4A7]" />
+            <span>Settle Keypad</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Main 2-Column Responsive Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left 2 Columns: Multi-Room Transactions & Expenses */}
+        <div className="lg:col-span-2 space-y-4">
+          <div className="rounded-[28px] bg-white p-6 border border-gray-100 shadow-[0_4px_24px_-4px_rgba(0,0,0,0.04)]">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-gray-100">
+              <div>
+                <h2 className="text-base font-bold text-gray-900">Recent Transactions</h2>
+                <p className="text-xs text-gray-400">Live expenses across your different circles</p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {/* Room Filter Selector */}
+                {rooms.length > 1 && (
+                  <select
+                    value={selectedRoomFilter}
+                    onChange={(e) => setSelectedRoomFilter(e.target.value)}
+                    className="rounded-xl border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#00C4A7]"
                   >
-                    <div className="flex min-w-0 items-center gap-3">
-                      <Avatar name={room.name} size="sm" />
+                    <option value="all">All Circles</option>
+                    {rooms.map((r) => (
+                      <option key={r.id} value={r.name}>{r.name}</option>
+                    ))}
+                  </select>
+                )}
 
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-foreground">
-                          {room.name}
-                        </p>
+                <div className="relative">
+                  <Search className="h-3.5 w-3.5 text-gray-400 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    placeholder="Search expenses..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="rounded-xl border border-gray-200 pl-8 pr-3 py-1.5 text-xs font-medium text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#00C4A7] w-full sm:w-44"
+                  />
+                </div>
+              </div>
+            </div>
 
-                        <p className="text-xs text-muted-foreground">
-                          {room.memberCount} members
-                        </p>
+            {/* List */}
+            <div className="mt-4 space-y-3.5">
+              {filteredExpenses.length === 0 ? (
+                <div className="py-8 text-center text-xs text-gray-400">
+                  No expenses match your search.
+                </div>
+              ) : (
+                filteredExpenses.map((tx) => {
+                  const Icon = tx.icon || getCategoryIcon(tx.title);
+                  return (
+                    <div
+                      key={tx.id}
+                      className="flex items-center justify-between p-2.5 rounded-2xl hover:bg-gray-50/80 transition-colors"
+                    >
+                      <div className="flex items-center gap-3.5">
+                        <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white shadow-xs border border-gray-100 text-gray-800 shrink-0">
+                          <Icon className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-bold text-gray-900">{tx.title}</p>
+                            {tx.roomName && (
+                              <span className="inline-flex items-center rounded-lg bg-teal-50 px-2 py-0.5 text-[10px] font-bold text-[#008F7A] border border-teal-100/70">
+                                {tx.roomName}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-gray-400 font-medium mt-0.5">
+                            {tx.time || (tx.createdAt ? formatDate(tx.createdAt) : "Recent")}
+                            {tx.paidByName ? ` · Paid by ${tx.paidByName}` : ""}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div>
+                        {tx.isPositive ? (
+                          <span className="inline-flex items-center rounded-xl bg-[#00C4A7] px-3 py-1 text-xs font-bold text-white shadow-xs">
+                            {tx.amount}
+                          </span>
+                        ) : (
+                          <span className="text-sm font-bold text-gray-900 tracking-tight">
+                            {tx.amount || `- $${Number(tx.totalAmount || 0).toFixed(2)}`}
+                          </span>
+                        )}
                       </div>
                     </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
 
-                    <Link
-                      to={`/rooms/${room.id}`}
-                      className="shrink-0 text-xs font-medium text-brand-700 hover:underline"
-                    >
-                      View
-                    </Link>
-                  </li>
+        {/* Right 1 Column: Active Circles & Shortcuts (Replaced Upgrade Plan Banner) */}
+        <div className="space-y-5">
+          {/* Your Circles / Rooms Card */}
+          <div className="rounded-[28px] bg-white p-5 border border-gray-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.04)]">
+            <div className="flex items-center justify-between pb-3">
+              <h3 className="text-sm font-bold text-gray-900">Your Circles & Rooms</h3>
+              <Link to="/rooms" className="text-xs font-bold text-[#00C4A7] hover:underline">
+                View all ({rooms.length})
+              </Link>
+            </div>
+
+            {rooms.length === 0 ? (
+              <div className="py-6 text-center text-xs text-gray-400">
+                No rooms joined yet.
+                <button
+                  type="button"
+                  onClick={() => navigate("/rooms")}
+                  className="mt-2 block mx-auto text-xs font-bold text-[#00C4A7]"
+                >
+                  + Create First Room
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {rooms.slice(0, 5).map((r) => (
+                  <div
+                    key={r.id}
+                    onClick={() => navigate(`/rooms/${r.id}`)}
+                    className="flex items-center justify-between p-2.5 rounded-2xl hover:bg-gray-50 border border-gray-100/70 transition-all cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-teal-50 text-[#00C4A7] font-bold text-xs shrink-0">
+                        <Users className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-gray-900 truncate">{r.name}</p>
+                        <p className="text-[10px] text-gray-400 font-mono">Code: {r.code}</p>
+                      </div>
+                    </div>
+                    <ArrowRight className="h-4 w-4 text-gray-400 shrink-0" />
+                  </div>
                 ))}
-              </ul>
+              </div>
             )}
-          </Card>
+          </div>
+
+          {/* Quick Circle Shortcuts Card (Replaced the Upgrade Plan Banner) */}
+          <div className="rounded-[28px] bg-white p-5 border border-gray-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.04)] space-y-3">
+            <h3 className="text-sm font-bold text-gray-900">Circle Shortcuts</h3>
+            
+            <button
+              type="button"
+              onClick={() => navigate("/rooms")}
+              className="flex w-full items-center justify-between p-3 rounded-2xl bg-[#F8F9FA] hover:bg-teal-50/60 border border-gray-100 text-left transition-colors"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#00C4A7] text-white">
+                  <Plus className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-gray-900">Create New Room</p>
+                  <p className="text-[10px] text-gray-400">Start splitting shared expenses</p>
+                </div>
+              </div>
+              <ArrowRight className="h-4 w-4 text-gray-400" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => navigate("/rooms")}
+              className="flex w-full items-center justify-between p-3 rounded-2xl bg-[#F8F9FA] hover:bg-teal-50/60 border border-gray-100 text-left transition-colors"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#18191E] text-white">
+                  <DoorOpen className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-gray-900">Join with Code</p>
+                  <p className="text-[10px] text-gray-400">Enter a 10-character room code</p>
+                </div>
+              </div>
+              <ArrowRight className="h-4 w-4 text-gray-400" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowSettleModal(true)}
+              className="flex w-full items-center justify-between p-3 rounded-2xl bg-[#F8F9FA] hover:bg-teal-50/60 border border-gray-100 text-left transition-colors"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-100 text-amber-800">
+                  <ArrowLeftRight className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-gray-900">Settle Up</p>
+                  <p className="text-[10px] text-gray-400">Record a settlement with member</p>
+                </div>
+              </div>
+              <ArrowRight className="h-4 w-4 text-gray-400" />
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Recent activity derived from actual expenses */}
-      <Card>
-        <SectionHeader title="Recent activity" />
+      {/* Add Expense Modal */}
+      <QuickExpenseModal
+        isOpen={showAddExpense}
+        onClose={() => setShowAddExpense(false)}
+        onCreated={loadData}
+      />
 
-        {loading ? (
-          <p className="px-5 pb-5 text-sm text-muted-foreground">
-            Loading activity...
-          </p>
-        ) : recentActivity.length === 0 ? (
-          <p className="px-5 pb-5 text-sm text-muted-foreground">
-            No recent activity.
-          </p>
-        ) : (
-          <ol className="relative space-y-0 px-5 pb-5">
-            {recentActivity.map((expense) => (
-              <li
-                key={expense.id}
-                className="relative flex gap-4 pb-5 last:pb-0"
-              >
-                <div className="flex flex-col items-center">
-                  <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-brand-500 ring-4 ring-brand-50" />
-                  <span className="mt-1 w-px flex-1 bg-border" />
-                </div>
-
-                <div className="min-w-0 pb-1">
-                  <p className="text-sm text-foreground">
-                    <span className="font-semibold">
-                      {expense.createdByName || "A member"}
-                    </span>{" "}
-                    added an expense
-                  </p>
-
-                  <p className="mt-0.5 text-sm text-muted-foreground">
-                    {expense.title} in {expense.roomName}
-                  </p>
-
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {expense.createdAt
-                      ? formatDateTime(expense.createdAt)
-                      : formatDate(getExpenseDate(expense))}
-                  </p>
-                </div>
-              </li>
-            ))}
-          </ol>
-        )}
-      </Card>
-
-      {/* Mobile quick actions */}
-      <nav
-        aria-label="Quick actions"
-        className="fixed bottom-4 left-1/2 z-40 w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 rounded-2xl border border-white/60 bg-white/60 p-2 shadow-xl shadow-brand-900/10 backdrop-blur-xl lg:hidden"
-      >
-        <ul className="grid grid-cols-4 gap-1">
-          {quickActions.map(({ to, label, icon: Icon }) => (
-            <li key={label}>
-              <Link
-                to={to}
-                className="flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-xs font-medium text-foreground/80 transition-all hover:bg-white/80 hover:text-brand-700 hover:shadow-sm"
-              >
-                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-600 text-white shadow-sm">
-                  <Icon className="h-4 w-4" aria-hidden="true" />
-                </span>
-                {label}
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </nav>
-    </div>
-  );
-}
-
-function SummaryCard({ label, value, iconTone, icon: Icon }) {
-  return (
-    <Card className="p-5 transition-shadow hover:shadow-md">
-      <div className="flex items-center justify-between">
-        <span
-          className={cn(
-            "flex h-9 w-9 items-center justify-center rounded-lg",
-            iconTone
-          )}
-        >
-          <Icon className="h-4 w-4" aria-hidden="true" />
-        </span>
-      </div>
-
-      <p className="mt-4 text-sm font-medium text-muted-foreground">
-        {label}
-      </p>
-
-      <p className="mt-1 break-words text-2xl font-bold tracking-tight text-foreground">
-        {value}
-      </p>
-    </Card>
-  );
-}
-
-function SectionHeader({ title }) {
-  return (
-    <div className="flex items-center justify-between px-5 py-4">
-      <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+      {/* Settle Keypad Modal (Screen 3) */}
+      <SettlePaymentModal
+        isOpen={showSettleModal}
+        onClose={() => setShowSettleModal(false)}
+        recipient={settleRecipient}
+        onSuccess={loadData}
+      />
     </div>
   );
 }

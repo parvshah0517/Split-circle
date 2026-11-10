@@ -15,8 +15,8 @@ export default function Input({ id, label, error, hint, endAdornment, className,
           aria-invalid={Boolean(error)}
           aria-describedby={error ? errorId : hint ? hintId : undefined}
           className={cn(
-            "h-10 w-full rounded-md border bg-white px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2",
-            error ? "border-destructive focus:ring-destructive/30" : "border-input focus:ring-ring",
+            "h-11 w-full rounded-2xl border border-gray-200 bg-white px-3.5 text-sm font-medium text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-[#00C4A7]",
+            error ? "border-destructive focus:ring-destructive/30" : "border-gray-200 focus:ring-[#00C4A7]",
             endAdornment && "pr-10",
             className,
           )}

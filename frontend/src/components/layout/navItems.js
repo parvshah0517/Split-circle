@@ -1,18 +1,14 @@
 
 import {
-  Activity,
-  ArrowLeftRight,
-  LayoutDashboard,
-  Scale,
-  UserRound,
-  Users,
+  CreditCard,
+  Home,
+  PieChart,
+  User,
 } from "lucide-react";
 
 export const navItems = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
-  { to: "/rooms", label: "My Rooms", icon: Users },
-  { to: "/position", label: "Position", icon: Scale },
-  { to: "/settlements", label: "Settlements", icon: ArrowLeftRight },
-  { to: "/activity", label: "Activity", icon: Activity },
-  { to: "/account", label: "Account Information", icon: UserRound },
+  { to: "/", label: "HOME", icon: Home, end: true },
+  { to: "/position", label: "ANALYTICS", icon: PieChart },
+  { to: "/rooms", label: "ROOMS", icon: CreditCard },
+  { to: "/account", label: "PROFILE", icon: User },
 ];

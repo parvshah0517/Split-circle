@@ -11,6 +11,8 @@ import Dashboard from "../pages/Dashboard";
 import Profile from "../pages/Profile";
 import Rooms from "../pages/Rooms";
 import Position from "../pages/Position";
+import Settlements from "../pages/Settlements";
+import Activity from "../pages/Activity";
 import NotFound from "../pages/NotFound";
 
 import { GuestRoute, ProtectedRoute } from "./RouteGuards";
@@ -58,12 +60,12 @@ export default function AppRoutes() {
 
           <Route
             path="/settlements"
-            element={<PlaceholderPage title="Settlements" />}
+            element={<Settlements />}
           />
 
           <Route
             path="/activity"
-            element={<PlaceholderPage title="Activity" />}
+            element={<Activity />}
           />
 
           <Route path="/account" element={<Profile />} />
