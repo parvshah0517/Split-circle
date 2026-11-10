@@ -28,6 +28,8 @@ module.exports = {
     port:        parseInt(process.env.PORT || '3001', 10),
     env:         process.env.NODE_ENV || 'development',
     frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
+    // Comma-separated list of additional allowed origins (e.g. deployed frontend)
+    allowedOrigins: process.env.ALLOWED_ORIGINS || '',
   },
 
   // ─── File Storage ────────────────────────────────────────────────────────────

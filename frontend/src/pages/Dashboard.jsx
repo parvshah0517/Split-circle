@@ -1,46 +1,30 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  Bell,
   Coffee,
-  Disc,
   Plus,
   RotateCcw,
   ShoppingBag,
-  TrendingUp,
-  UserPlus,
   Utensils,
-  Wallet,
   Zap,
   Users,
   ArrowRight,
   Search,
-  CheckCircle2,
   DoorOpen,
   ArrowLeftRight,
 } from "lucide-react";
-import { toast } from "sonner";
 
-import Avatar from "../components/common/Avatar";
-import Card from "../components/common/Card";
 import QuickExpenseModal from "../components/expenses/QuickExpenseModal";
 import SettlePaymentModal from "../components/settlements/SettlePaymentModal";
-import SettlementHistoryView from "../components/settlements/SettlementHistoryView";
-import { DribbbleIcon, SpotifyIcon } from "../components/common/BrandIcons";
 
 import { useAuth } from "../hooks/useAuth";
 import { getMyRooms } from "../services/groupService";
 import { getRoomExpenses } from "../services/expenseService";
 
-import { cn } from "../lib/utils";
 import { formatDate } from "../utils/format";
 
 const categoryIconMap = {
   coffee: Coffee,
-  dribbble: DribbbleIcon,
-  design: DribbbleIcon,
-  spotify: SpotifyIcon,
-  music: SpotifyIcon,
   food: Utensils,
   dining: Utensils,
   shopping: ShoppingBag,
@@ -69,8 +53,7 @@ export default function Dashboard() {
   // Modals & subviews
   const [showAddExpense, setShowAddExpense] = useState(false);
   const [showSettleModal, setShowSettleModal] = useState(false);
-  const [activeFriend, setActiveFriend] = useState(null);
-  const [settleRecipient, setSettleRecipient] = useState({ name: "Taylor Swift", amount: "1280.00" });
+  const settleRecipient = { name: "", amount: "0.00" };
 
   const loadData = async () => {
     try {
@@ -132,123 +115,19 @@ export default function Dashboard() {
       }
     });
 
-    const displayOwe = owe > 0 ? owe : 562.72;
-    const displayOwed = owed > 0 ? owed : 38822.72;
-    const displayTotal = (displayOwed - displayOwe) > 0 ? (displayOwed - displayOwe) : 76256.91;
-
     return {
-      youOwe: displayOwe,
-      youOwed: displayOwed,
-      totalBalance: displayTotal,
+      youOwe: owe,
+      youOwed: owed,
+      totalBalance: owed - owe,
     };
   }, [expenses, user]);
 
-  const quickFriends = [
-    {
-      id: "billie",
-      name: "Billie Eilish",
-      balanceText: "You Owe her $736.29",
-      amount: "736.29",
-      tone: "bg-[#D9F99D]",
-    },
-    {
-      id: "taylor",
-      name: "Taylor Swift",
-      balanceText: "You Owe her $1280.00",
-      amount: "1280.00",
-      tone: "bg-[#FEF08A]",
-    },
-    {
-      id: "dua",
-      name: "Dua Lipa",
-      balanceText: "She Owes you $420.50",
-      amount: "420.50",
-      tone: "bg-[#CCFBF1]",
-    },
-    {
-      id: "weekend",
-      name: "The Weeknd",
-      balanceText: "He Owes you $89.00",
-      amount: "89.00",
-      tone: "bg-[#FED7AA]",
-    },
-  ];
-
-  // Default multi-room transactions demonstrating expenses across multiple circles
-  const defaultRecentTransactions = [
-    {
-      id: "ref-1",
-      title: "Coffee & Snacks",
-      roomName: "Flat 402",
-      paidByName: "Taylor Swift",
-      time: "Today · 11:29AM",
-      amount: "- $10.12",
-      icon: Coffee,
-      isPositive: false,
-    },
-    {
-      id: "ref-2",
-      title: "Dribbble Team Pro",
-      roomName: "Design Circle",
-      paidByName: "Parv Shah",
-      time: "Today · 10:29AM",
-      amount: "- $180.00",
-      icon: DribbbleIcon,
-      isPositive: false,
-    },
-    {
-      id: "ref-3",
-      title: "Spotify Family Plan",
-      roomName: "Home Circle",
-      paidByName: "Billie Eilish",
-      time: "Today · 09:21AM",
-      amount: "- $29.00",
-      icon: SpotifyIcon,
-      isPositive: false,
-    },
-    {
-      id: "ref-4",
-      title: "Utilities Refund",
-      roomName: "Flat 402",
-      paidByName: "Dua Lipa",
-      time: "Yesterday · 09:21AM",
-      amount: "+ $29.00",
-      icon: RotateCcw,
-      isPositive: true,
-    },
-    {
-      id: "ref-5",
-      title: "Team Dinner & Drinks",
-      roomName: "Goa Trip 2026",
-      paidByName: "The Weeknd",
-      time: "Yesterday · 08:30PM",
-      amount: "- $124.50",
-      icon: Utensils,
-      isPositive: false,
-    },
-  ];
-
-  const handleOpenSettleKeypad = (name = "Taylor Swift", amt = "1280.00") => {
-    setSettleRecipient({ name, amount: amt });
-    setShowSettleModal(true);
-  };
-
-  if (activeFriend) {
-    return (
-      <div className="pb-16 pt-2 max-w-xl mx-auto">
-        <SettlementHistoryView
-          person={activeFriend}
-          onBack={() => setActiveFriend(null)}
-        />
-      </div>
-    );
-  }
-
-  const rawExpenseList = expenses.length > 0 ? expenses : defaultRecentTransactions;
-
-  const filteredExpenses = rawExpenseList.filter((item) => {
-    const matchesSearch = !searchQuery.trim() || item.title.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesRoom = selectedRoomFilter === "all" || item.roomName === selectedRoomFilter;
+  const filteredExpenses = expenses.filter((item) => {
+    const matchesSearch =
+      !searchQuery.trim() ||
+      (item.title || "").toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesRoom =
+      selectedRoomFilter === "all" || item.roomName === selectedRoomFilter;
     return matchesSearch && matchesRoom;
   });
 
@@ -266,14 +145,12 @@ export default function Dashboard() {
               <span className="text-xs font-semibold text-white/90 tracking-wide">
                 Total Balance
               </span>
-              <span className="inline-flex items-center rounded-full bg-white/20 px-2.5 py-0.5 text-[11px] font-bold text-white backdrop-blur-xs border border-white/25">
-                6.5%
-              </span>
+
             </div>
 
             <div className="relative mt-3">
               <p className="text-3xl lg:text-4xl font-black tracking-tight text-white">
-                $ {totalBalance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                ₹ {totalBalance.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </p>
               <p className="text-[11px] text-white/80 mt-1">Across all active circles</p>
             </div>
@@ -293,7 +170,7 @@ export default function Dashboard() {
         {/* YOU OWE Card */}
         <button
           type="button"
-          onClick={() => handleOpenSettleKeypad("Billie Eilish", youOwe.toFixed(2))}
+          onClick={() => setShowSettleModal(true)}
           className="rounded-[28px] bg-white p-6 text-left border border-gray-100 shadow-[0_4px_24px_-4px_rgba(0,0,0,0.04)] hover:shadow-md transition-all flex flex-col justify-between"
         >
           <div>
@@ -306,13 +183,13 @@ export default function Dashboard() {
               You Owe
             </p>
             <p className="text-xs text-gray-400 font-medium mt-0.5">
-              You should Pay to others
+              You should pay to others
             </p>
           </div>
 
           <div className="mt-4 flex items-baseline justify-between">
             <p className="text-2xl lg:text-3xl font-black tracking-tight text-gray-900">
-              ${youOwe.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ₹{youOwe.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
             <span className="text-xs font-bold text-[#00C4A7] hover:underline">
               Settle now &rarr;
@@ -321,11 +198,7 @@ export default function Dashboard() {
         </button>
 
         {/* YOU OWED Card */}
-        <button
-          type="button"
-          onClick={() => toast.info("Reminder sent to room members.")}
-          className="rounded-[28px] bg-white p-6 text-left border border-gray-100 shadow-[0_4px_24px_-4px_rgba(0,0,0,0.04)] hover:shadow-md transition-all flex flex-col justify-between"
-        >
+        <div className="rounded-[28px] bg-white p-6 text-left border border-gray-100 shadow-[0_4px_24px_-4px_rgba(0,0,0,0.04)] flex flex-col justify-between">
           <div>
             <div className="relative flex h-8 w-8 items-center">
               <div className="absolute left-0 h-6 w-6 rounded-full bg-[#00C4A7]" />
@@ -336,68 +209,30 @@ export default function Dashboard() {
               You Owed
             </p>
             <p className="text-xs text-gray-400 font-medium mt-0.5">
-              Other should Pay to you
+              Others should pay you
             </p>
           </div>
 
-          <div className="mt-4 flex items-baseline justify-between">
+          <div className="mt-4">
             <p className="text-2xl lg:text-3xl font-black tracking-tight text-gray-900">
-              ${youOwed.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ₹{youOwed.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
-            <span className="text-xs font-bold text-[#00C4A7] hover:underline">
-              Remind all &rarr;
-            </span>
           </div>
-        </button>
+        </div>
       </div>
 
-      {/* Quick Settle & Friends Bar */}
+      {/* Quick Settle & Friends */}
       <div className="rounded-[28px] bg-white p-5 border border-gray-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.04)]">
         <div className="flex items-center justify-between pb-3">
           <div>
             <h2 className="text-sm font-bold text-gray-900">Quick Settle & Member Circles</h2>
-            <p className="text-xs text-gray-400">Click any contact to view their split history or settle balance</p>
+            <p className="text-xs text-gray-400">
+              Member settlement shortcuts will appear when balance details are available.
+            </p>
           </div>
-          <button
-            type="button"
-            onClick={() => handleOpenSettleKeypad("Taylor Swift", "1280.00")}
-            className="hidden sm:inline-flex items-center gap-1.5 text-xs font-bold text-[#00C4A7] hover:text-[#00B096]"
-          >
-            <span>Open Keypad Settle</span>
-            <ArrowRight className="h-3.5 w-3.5" />
-          </button>
         </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-3 pt-1">
-          {quickFriends.map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              onClick={() => setActiveFriend(f)}
-              className="flex items-center gap-3 rounded-2xl p-2.5 hover:bg-gray-50 border border-gray-100 transition-all text-left"
-            >
-              <div className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-[18px] shadow-xs", f.tone)}>
-                <Avatar name={f.name} size="sm" shape="squircle" className="bg-transparent" />
-              </div>
-              <div className="min-w-0">
-                <span className="text-xs font-bold text-gray-900 truncate block">
-                  {f.name}
-                </span>
-                <span className="text-[11px] font-semibold text-[#009680]">
-                  ${f.amount}
-                </span>
-              </div>
-            </button>
-          ))}
-
-          <button
-            type="button"
-            onClick={() => handleOpenSettleKeypad("Taylor Swift", "1280.00")}
-            className="flex items-center justify-center gap-2 rounded-2xl p-2.5 border border-dashed border-gray-300 hover:border-[#00C4A7] hover:bg-teal-50/50 text-gray-600 transition-all text-xs font-bold"
-          >
-            <Plus className="h-4 w-4 text-[#00C4A7]" />
-            <span>Settle Keypad</span>
-          </button>
+        <div className="py-6 text-center text-xs text-gray-400">
+          No member balances to display yet.
         </div>
       </div>
 
@@ -444,7 +279,11 @@ export default function Dashboard() {
             <div className="mt-4 space-y-3.5">
               {filteredExpenses.length === 0 ? (
                 <div className="py-8 text-center text-xs text-gray-400">
-                  No expenses match your search.
+                  {loading
+                    ? "Loading expenses..."
+                    : expenses.length === 0
+                      ? "No expenses recorded yet."
+                      : "No expenses match your search."}
                 </div>
               ) : (
                 filteredExpenses.map((tx) => {
@@ -475,15 +314,12 @@ export default function Dashboard() {
                       </div>
 
                       <div>
-                        {tx.isPositive ? (
-                          <span className="inline-flex items-center rounded-xl bg-[#00C4A7] px-3 py-1 text-xs font-bold text-white shadow-xs">
-                            {tx.amount}
-                          </span>
-                        ) : (
-                          <span className="text-sm font-bold text-gray-900 tracking-tight">
-                            {tx.amount || `- $${Number(tx.totalAmount || 0).toFixed(2)}`}
-                          </span>
-                        )}
+                        <span className="text-sm font-bold text-gray-900 tracking-tight">
+                          {new Intl.NumberFormat("en-IN", {
+                            style: "currency",
+                            currency: tx.currency || "INR",
+                          }).format(Number(tx.totalAmount || 0))}
+                        </span>
                       </div>
                     </div>
                   );

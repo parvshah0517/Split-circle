@@ -14,8 +14,21 @@ const app = express();
 app.use(helmet());
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
+// Build the whitelist from FRONTEND_URL + ALLOWED_ORIGINS (comma-separated).
+const allowedOrigins = [
+  config.app.frontendUrl,
+  ...(config.app.allowedOrigins
+    ? config.app.allowedOrigins.split(',').map(o => o.trim()).filter(Boolean)
+    : []),
+];
+
 app.use(cors({
-  origin:      config.app.frontendUrl,
+  origin(origin, callback) {
+    // Allow requests with no origin (e.g. server-to-server, curl, mobile apps)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error(`Origin ${origin} not allowed by CORS`));
+  },
   credentials: true,
   methods:     ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
