@@ -5,86 +5,227 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "backend/**"
+      - ".github/workflows/deploy-backend.yml"
 
 permissions:
   contents: read
   id-token: write
 
+env:
+  AWS_REGION: us-east-1
+  DEPLOYMENT_BUCKET: splitcircle-deployments-9330
+
 jobs:
   deploy:
-    name: Deploy Backend to EC2
+    name: Package and Upload Backend
     runs-on: ubuntu-24.04
 
     steps:
+
+      # --------------------------------
+      # Checkout Repository
+      # --------------------------------
+
       - name: Checkout repository
         uses: actions/checkout@v7
+
+      # --------------------------------
+      # AWS Authentication using OIDC
+      # --------------------------------
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: us-east-1
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Install Session Manager Plugin
-        run: |
-          curl -sSL \
-            https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb \
-            -o session-manager-plugin.deb
-          sudo dpkg -i session-manager-plugin.deb
-
-      - name: Configure SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/splitcircle_key
-          chmod 600 ~/.ssh/splitcircle_key
-
-      - name: Start SSM tunnel
-        run: |
-          nohup aws ssm start-session \
-            --target i-09edbdf3b511afc4a \
-            --document-name AWS-StartPortForwardingSession \
-            --parameters '{"portNumber":["22"],"localPortNumber":["2222"]}' \
-            > /tmp/ssm-session.log 2>&1 &
-
-          for i in {1..30}; do
-            if nc -z localhost 2222; then
-              echo "SSM tunnel ready"
-              exit 0
-            fi
-            sleep 2
-          done
-
-          cat /tmp/ssm-session.log
-          exit 1
+      # --------------------------------
+      # Package Backend
+      # --------------------------------
 
       - name: Package backend
         run: |
-          tar -czf /tmp/backend.tar.gz \
+          set -euo pipefail
+
+          tar -czf backend.tar.gz \
             --exclude=node_modules \
             --exclude=.env \
             -C backend .
 
-      - name: Transfer backend
-        run: |
-          scp -i ~/.ssh/splitcircle_key \
-            -P 2222 \
-            -o StrictHostKeyChecking=no \
-            /tmp/backend.tar.gz \
-            ec2-user@localhost:/tmp/backend.tar.gz
+      # --------------------------------
+      # Upload Versioned Release to S3
+      # --------------------------------
 
-      - name: Deploy backend
+      - name: Upload backend release to S3
         run: |
-          ssh -i ~/.ssh/splitcircle_key \
-            -p 2222 \
-            -o StrictHostKeyChecking=no \
-            ec2-user@localhost '
-              set -e
-              mkdir -p /home/ec2-user/splitcircle-deploy
-              tar -xzf /tmp/backend.tar.gz -C /home/ec2-user/splitcircle-deploy
-              cd /home/ec2-user/splitcircle-deploy
-              /home/ec2-user/splitcircle-deploy/node/bin/node \
-                /home/ec2-user/splitcircle-deploy/node/lib/node_modules/npm/bin/npm-cli.js \
-                ci --omit=dev
-              sudo systemctl restart splitcircle-backend
-              sudo systemctl is-active splitcircle-backend
-            '
+          set -euo pipefail
+
+          VERSION="${GITHUB_SHA}"
+
+          aws s3 cp backend.tar.gz \
+            "s3://${DEPLOYMENT_BUCKET}/releases/${VERSION}/backend.tar.gz"
+
+      # --------------------------------
+      # Update Latest Version Pointer
+      # --------------------------------
+
+      - name: Update latest.json
+        run: |
+          set -euo pipefail
+
+          echo "{\"version\":\"${GITHUB_SHA}\"}" > latest.json
+
+          aws s3 cp latest.json \
+            "s3://${DEPLOYMENT_BUCKET}/latest.json"
+
+      # --------------------------------
+      # Deploy to Existing EC2 Instances using SSM
+      # --------------------------------
+
+      - name: Deploy backend using SSM
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="${GITHUB_SHA}"
+
+          # Create deployment script
+
+          cat > deploy.sh <<EOF
+          #!/bin/bash
+          set -euo pipefail
+
+          APP_DIR="/opt/splitcircle"
+          RELEASE_DIR="\$APP_DIR/releases/${VERSION}"
+
+          mkdir -p "\$RELEASE_DIR"
+
+          aws s3 cp \
+            "s3://${DEPLOYMENT_BUCKET}/releases/${VERSION}/backend.tar.gz" \
+            /tmp/backend.tar.gz
+
+          tar -xzf /tmp/backend.tar.gz -C "\$RELEASE_DIR"
+
+          cd "\$RELEASE_DIR"
+
+          npm ci --omit=dev
+
+          chown -R ec2-user:ec2-user "\$APP_DIR"
+
+          ln -sfn "\$RELEASE_DIR" "\$APP_DIR/current"
+
+          systemctl restart splitcircle-backend
+
+          systemctl is-active --quiet splitcircle-backend
+
+          echo "Backend deployment completed successfully"
+          EOF
+
+          # Create SSM parameters
+
+          jq -n \
+            --arg command "$(cat deploy.sh)" \
+            '{commands: [$command]}' > ssm-parameters.json
+
+          # Send deployment command
+
+          COMMAND_ID=$(aws ssm send-command \
+            --document-name "AWS-RunShellScript" \
+            --targets \
+              "Key=tag:Application,Values=SplitCircle" \
+              "Key=tag:Role,Values=Backend" \
+            --parameters file://ssm-parameters.json \
+            --comment "SplitCircle deployment ${VERSION}" \
+            --max-concurrency "100%" \
+            --max-errors "0" \
+            --query "Command.CommandId" \
+            --output text)
+
+          echo "SSM Command ID: ${COMMAND_ID}"
+
+          # --------------------------------
+          # Wait for SSM Deployment Results
+          # --------------------------------
+
+          DEPLOYMENT_SUCCESS=false
+
+          for i in {1..60}; do
+
+            echo "Checking deployment status... Attempt ${i}/60"
+
+            aws ssm list-command-invocations \
+              --command-id "${COMMAND_ID}" \
+              --output json > invocations.json
+
+            COUNT=$(jq '.CommandInvocations | length' invocations.json)
+
+            if [ "${COUNT}" -eq 0 ]; then
+              echo "Waiting for SSM instances..."
+              sleep 10
+              continue
+            fi
+
+            echo "Instances receiving command: ${COUNT}"
+
+            # Check whether all instances succeeded
+
+            if jq -e \
+              'all(.CommandInvocations[]; .Status == "Success")' \
+              invocations.json > /dev/null; then
+
+              echo "Deployment successful on all reported instances"
+
+              DEPLOYMENT_SUCCESS=true
+              break
+            fi
+
+            # Check for deployment failures
+
+            if jq -e \
+              'any(.CommandInvocations[];
+                .Status as $status |
+                ([
+                  "Failed",
+                  "Cancelled",
+                  "TimedOut",
+                  "Undeliverable",
+                  "Terminated",
+                  "DeliveryTimedOut",
+                  "ExecutionTimedOut",
+                  "AccessDenied",
+                  "InvalidPlatform"
+                ] | index($status)) != null
+              )' \
+              invocations.json > /dev/null; then
+
+              echo "Deployment failed"
+
+              cat invocations.json
+
+              exit 1
+            fi
+
+            sleep 10
+
+          done
+
+          # --------------------------------
+          # Final Deployment Verification
+          # --------------------------------
+
+          if [ "${DEPLOYMENT_SUCCESS}" != "true" ]; then
+
+            echo "Deployment did not complete successfully within the timeout"
+
+            cat invocations.json
+
+            exit 1
+
+          fi
+
+          echo "=================================="
+          echo "SplitCircle Backend Deployment OK"
+          echo "Version: ${VERSION}"
+          echo "=================================="
