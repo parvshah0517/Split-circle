@@ -1,9 +1,50 @@
+
 'use strict';
 
-// ─── Phase 3: Authentication ─────────────────────────────────────────────────
-// Validator schemas for /api/auth routes
-
 const { body } = require('express-validator');
+
+const usernameRule = () =>
+  body('username')
+    .trim()
+    .toLowerCase()
+    .matches(/^[a-z0-9_]{3,30}$/)
+    .withMessage(
+      'Username must be 3-30 characters and contain only letters, numbers, and underscores.'
+    );
+
+const mobileRule = () =>
+  body('mobile')
+    .trim()
+    .matches(/^\+[1-9]\d{7,14}$/)
+    .withMessage(
+      'Enter a valid mobile number with country code, e.g. +919876543210.'
+    );
+
+const mpinRule = () =>
+  body('mpin')
+    .matches(/^\d{4}$/)
+    .withMessage('MPIN must contain exactly four digits.');
+
+const registerValidator = [
+  body('name')
+    .trim()
+    .notEmpty()
+    .withMessage('Full name is required.')
+    .isLength({ max: 100 })
+    .withMessage('Name cannot exceed 100 characters.'),
+
+  usernameRule(),
+
+  mobileRule(),
+
+  mpinRule(),
+];
+
+const loginValidator = [
+  usernameRule(),
+  mpinRule(),
+];
+
 const profileValidator = [
   body('name')
     .optional()
@@ -13,48 +54,32 @@ const profileValidator = [
     .isLength({ max: 100 })
     .withMessage('Name cannot exceed 100 characters.'),
 
+  body('mobile')
+    .optional()
+    .trim()
+    .matches(/^\+[1-9]\d{7,14}$/)
+    .withMessage('Enter a valid mobile number with country code.'),
+
   body('avatar_url')
     .optional({ nullable: true })
     .isURL()
     .withMessage('Avatar must be a valid URL.'),
 
-  body()
-    .custom((value) => {
-      if (
-        value.name === undefined &&
-        value.avatar_url === undefined
-      ) {
-        throw new Error('Provide at least one profile field to update.');
-      }
+  body().custom((value) => {
+    if (
+      value.name === undefined &&
+      value.mobile === undefined &&
+      value.avatar_url === undefined
+    ) {
+      throw new Error('Provide at least one profile field to update.');
+    }
 
-      return true;
-    }),
-];
-const registerValidator = [
-  body('name')
-    .trim()
-    .notEmpty().withMessage('Name is required.')
-    .isLength({ max: 100 }).withMessage('Name must be at most 100 characters.'),
-  body('email')
-    .trim()
-    .notEmpty().withMessage('Email is required.')
-    .isEmail().withMessage('Email must be a valid email address.')
-    .normalizeEmail(),
-  body('password')
-    .notEmpty().withMessage('Password is required.')
-    .isLength({ min: 8 }).withMessage('Password must be at least 8 characters.')
-    .matches(/[A-Z]/).withMessage('Password must contain at least one uppercase letter.')
-    .matches(/[0-9]/).withMessage('Password must contain at least one number.'),
+    return true;
+  }),
 ];
 
-const loginValidator = [
-  body('email')
-    .trim()
-    .notEmpty().withMessage('Email is required.')
-    .isEmail().withMessage('Email must be a valid email address.')
-    .normalizeEmail(),
-  body('password')
-    .notEmpty().withMessage('Password is required.'),
-];
-
-module.exports = { registerValidator, loginValidator,profileValidator };
+module.exports = {
+  registerValidator,
+  loginValidator,
+  profileValidator,
+};

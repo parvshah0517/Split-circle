@@ -36,16 +36,21 @@ export async function getMyRooms() {
 }
 
 // POST /api/rooms
-export async function createRoom({ name }) {
+export async function createRoom({ name, budgetAmount }) {
   if (!name?.trim()) {
     throw new Error("Room name is required.");
   }
 
-  const response = await api.post("/rooms", {
+  const payload = {
     name: name.trim(),
     default_currency: "INR",
-  });
+  };
 
+  if (budgetAmount !== undefined && budgetAmount !== null && budgetAmount !== "") {
+    payload.budget_amount = budgetAmount;
+  }
+
+  const response = await api.post("/rooms", payload);
   return mapRoom(response.data.data.room);
 }
 

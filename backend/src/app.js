@@ -72,7 +72,7 @@ app.use('/api/expenses', require('./routes/expenseRoutes'));
 // app.use('/api/rooms',         require('./routes/rooms'));
 // app.use('/api/approvals',     require('./routes/approvals'));
 // app.use('/api/notifications', require('./routes/notifications'));
-
+app.use('/api/approvals', require('./routes/approvalRoutes'));
 // ─── 404 Handler ──────────────────────────────────────────────────────────────
 app.use((req, res) => {
   res.status(404).json({

@@ -1,3 +1,4 @@
+
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -5,9 +6,7 @@ import {
   Users,
   DoorOpen,
   Copy,
-  CalendarDays,
   ArrowRight,
-  ShieldCheck,
   Search,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -23,6 +22,9 @@ export default function Rooms() {
   const navigate = useNavigate();
 
   const [roomName, setRoomName] = useState("");
+  const [hasBudget, setHasBudget] = useState(false);
+  const [budgetAmount, setBudgetAmount] = useState("");
+
   const [roomCode, setRoomCode] = useState("");
   const [rooms, setRooms] = useState([]);
   const [search, setSearch] = useState("");
@@ -31,7 +33,7 @@ export default function Rooms() {
   const [isCreating, setIsCreating] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
 
-  const [activeTab, setActiveTab] = useState("all"); // 'all', 'create', 'join'
+  const [activeTab, setActiveTab] = useState("all");
 
   const loadRooms = useCallback(async () => {
     try {
@@ -51,17 +53,40 @@ export default function Rooms() {
 
   const handleCreateRoom = async (event) => {
     event.preventDefault();
+
     if (!roomName.trim()) {
       toast.error("Please enter a room name.");
       return;
     }
 
+    if (hasBudget) {
+      const amount = Number(budgetAmount);
+
+      if (
+        !budgetAmount.trim() ||
+        !Number.isFinite(amount) ||
+        amount <= 0
+      ) {
+        toast.error("Please enter a valid positive room budget.");
+        return;
+      }
+    }
+
     try {
       setIsCreating(true);
-      const room = await createRoom({ name: roomName });
+
+      const room = await createRoom({
+        name: roomName,
+        budgetAmount: hasBudget ? budgetAmount : undefined,
+      });
+
       setRoomName("");
+      setHasBudget(false);
+      setBudgetAmount("");
+
       toast.success(`Room "${room.name}" created!`);
       toast.info(`Room invitation code: ${room.code}`);
+
       setActiveTab("all");
       await loadRooms();
     } catch (error) {
@@ -73,6 +98,7 @@ export default function Rooms() {
 
   const handleJoinRoom = async (event) => {
     event.preventDefault();
+
     if (!roomCode.trim()) {
       toast.error("Please enter a room code.");
       return;
@@ -80,9 +106,13 @@ export default function Rooms() {
 
     try {
       setIsJoining(true);
+
       const room = await joinRoom({ code: roomCode });
+
       setRoomCode("");
+
       toast.success(`Joined "${room.name}"!`);
+
       setActiveTab("all");
       await loadRooms();
     } catch (error) {
@@ -107,12 +137,14 @@ export default function Rooms() {
 
   return (
     <div className="space-y-6 pb-20">
+
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black tracking-tight text-gray-900">
             Rooms & Circles
           </h1>
+
           <p className="text-xs sm:text-sm text-gray-400 font-medium">
             Manage your shared circles, invite members, and split expenses
           </p>
@@ -121,7 +153,9 @@ export default function Rooms() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => setActiveTab(activeTab === "create" ? "all" : "create")}
+            onClick={() =>
+              setActiveTab(activeTab === "create" ? "all" : "create")
+            }
             className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-xs font-bold uppercase tracking-wider transition-all shadow-xs ${
               activeTab === "create"
                 ? "bg-[#18191E] text-white"
@@ -134,7 +168,9 @@ export default function Rooms() {
 
           <button
             type="button"
-            onClick={() => setActiveTab(activeTab === "join" ? "all" : "join")}
+            onClick={() =>
+              setActiveTab(activeTab === "join" ? "all" : "join")
+            }
             className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-xs font-bold uppercase tracking-wider transition-all border ${
               activeTab === "join"
                 ? "bg-[#18191E] text-white border-transparent"
@@ -147,24 +183,34 @@ export default function Rooms() {
         </div>
       </div>
 
-      {/* Forms Section: Create & Join */}
+      {/* Create Room Form */}
       {activeTab === "create" && (
         <div className="rounded-[28px] bg-white p-6 border border-gray-100 shadow-sm animate-in fade-in max-w-xl mx-auto">
+
           <div className="flex items-center gap-3 mb-4">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-teal-50 text-[#00C4A7]">
               <Plus className="h-5 w-5" />
             </div>
+
             <div>
-              <h2 className="text-base font-bold text-gray-900">Create a New Room</h2>
-              <p className="text-xs text-gray-400">Start an expense-sharing circle with friends</p>
+              <h2 className="text-base font-bold text-gray-900">
+                Create a New Room
+              </h2>
+
+              <p className="text-xs text-gray-400">
+                Start an expense-sharing circle with friends
+              </p>
             </div>
           </div>
 
           <form onSubmit={handleCreateRoom} className="space-y-4">
+
+            {/* Room Name */}
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1">
                 Room Name
               </label>
+
               <input
                 type="text"
                 placeholder="e.g. Flat 402, Road Trip, Goa Vacation"
@@ -176,6 +222,46 @@ export default function Rooms() {
               />
             </div>
 
+            {/* Optional Room Budget */}
+            <div className="rounded-2xl border border-gray-200 p-4 space-y-3">
+              <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={hasBudget}
+                  onChange={(e) => {
+                    setHasBudget(e.target.checked);
+
+                    if (!e.target.checked) {
+                      setBudgetAmount("");
+                    }
+                  }}
+                  className="h-4 w-4 accent-[#00C4A7]"
+                />
+
+                Set a room budget (optional)
+              </label>
+
+              {hasBudget && (
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">
+                    Total Room Budget (₹)
+                  </label>
+
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    required
+                    value={budgetAmount}
+                    onChange={(e) => setBudgetAmount(e.target.value)}
+                    placeholder="e.g. 25000"
+                    className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#00C4A7]"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Form Buttons */}
             <div className="flex gap-2">
               <button
                 type="submit"
@@ -184,6 +270,7 @@ export default function Rooms() {
               >
                 {isCreating ? "Creating..." : "Confirm & Create"}
               </button>
+
               <button
                 type="button"
                 onClick={() => setActiveTab("all")}
@@ -196,15 +283,23 @@ export default function Rooms() {
         </div>
       )}
 
+      {/* Join Room Form */}
       {activeTab === "join" && (
         <div className="rounded-[28px] bg-white p-6 border border-gray-100 shadow-sm animate-in fade-in max-w-xl mx-auto">
+
           <div className="flex items-center gap-3 mb-4">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-teal-50 text-[#00C4A7]">
               <DoorOpen className="h-5 w-5" />
             </div>
+
             <div>
-              <h2 className="text-base font-bold text-gray-900">Join Existing Room</h2>
-              <p className="text-xs text-gray-400">Enter a 10-character room invitation code</p>
+              <h2 className="text-base font-bold text-gray-900">
+                Join Existing Room
+              </h2>
+
+              <p className="text-xs text-gray-400">
+                Enter a 10-character room invitation code
+              </p>
             </div>
           </div>
 
@@ -213,6 +308,7 @@ export default function Rooms() {
               <label className="block text-xs font-semibold text-gray-600 mb-1">
                 Invitation Code
               </label>
+
               <input
                 type="text"
                 placeholder="e.g. ABC123XYZ0"
@@ -232,6 +328,7 @@ export default function Rooms() {
               >
                 {isJoining ? "Joining..." : "Join Circle"}
               </button>
+
               <button
                 type="button"
                 onClick={() => setActiveTab("all")}
@@ -253,6 +350,7 @@ export default function Rooms() {
 
           <div className="relative">
             <Search className="h-4 w-4 text-gray-400 absolute left-3 top-2.5" />
+
             <input
               type="text"
               placeholder="Search rooms..."
@@ -272,10 +370,15 @@ export default function Rooms() {
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-teal-50 text-[#00C4A7] mb-3">
               <Users className="h-7 w-7" />
             </div>
-            <h3 className="text-base font-bold text-gray-900">No rooms found</h3>
+
+            <h3 className="text-base font-bold text-gray-900">
+              No rooms found
+            </h3>
+
             <p className="mt-1 text-xs text-gray-400">
               Create your first room or join one with an invitation code.
             </p>
+
             <button
               type="button"
               onClick={() => setActiveTab("create")}
@@ -296,10 +399,19 @@ export default function Rooms() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-3">
                       <div className="flex h-12 w-12 items-center justify-center rounded-[20px] bg-[#CCFBF1] text-[#008F7A] shadow-xs">
-                        <Avatar name={room.name} size="sm" shape="squircle" className="bg-transparent" />
+                        <Avatar
+                          name={room.name}
+                          size="sm"
+                          shape="squircle"
+                          className="bg-transparent"
+                        />
                       </div>
+
                       <div>
-                        <h3 className="text-base font-bold text-gray-900">{room.name}</h3>
+                        <h3 className="text-base font-bold text-gray-900">
+                          {room.name}
+                        </h3>
+
                         <p className="text-xs text-gray-400 font-medium">
                           {room.memberCount || room.members?.length || 1} members
                         </p>
@@ -321,16 +433,18 @@ export default function Rooms() {
                       <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
                         Room Code:
                       </span>
+
                       <p className="font-mono text-xs font-bold text-gray-900 tracking-wider">
                         {room.code}
                       </p>
                     </div>
+
                     <button
                       type="button"
                       onClick={() => handleCopyCode(room.code)}
                       className="text-xs font-bold text-[#00C4A7] hover:text-[#00B096]"
                     >
-                      Copy
+                      <Copy className="h-4 w-4" />
                     </button>
                   </div>
                 </div>
@@ -339,6 +453,7 @@ export default function Rooms() {
                   <span className="text-[11px] text-gray-400">
                     Currency: {room.defaultCurrency || "INR"}
                   </span>
+
                   <button
                     type="button"
                     onClick={() => navigate(`/rooms/${room.id}`)}

@@ -5,7 +5,6 @@ import {
   Home,
   PieChart,
   User,
-  Plus,
   ArrowLeftRight,
   Activity as ActivityIcon,
   Menu,
@@ -14,8 +13,6 @@ import {
 } from "lucide-react";
 
 import Logo from "../common/Logo";
-import QuickExpenseModal from "../expenses/QuickExpenseModal";
-import SettlePaymentModal from "../settlements/SettlePaymentModal";
 import { useAuth } from "../../hooks/useAuth";
 import { cn } from "../../lib/utils";
 
@@ -40,8 +37,6 @@ export default function AppLayout() {
   const navigate = useNavigate();
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [showAddExpense, setShowAddExpense] = useState(false);
-  const [showSettleModal, setShowSettleModal] = useState(false);
 
   const isTabActive = (path) => {
     if (path === "/") return location.pathname === "/";
@@ -91,25 +86,6 @@ export default function AppLayout() {
 
           {/* Right Action Controls */}
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-            {/* Quick Add Expense Button */}
-            <button
-              type="button"
-              onClick={() => setShowAddExpense(true)}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-[#00C4A7] hover:bg-[#00B096] text-white px-3.5 py-2 text-xs font-bold uppercase tracking-wider shadow-md shadow-[#00C4A7]/20 active:scale-[0.98] transition-all whitespace-nowrap shrink-0"
-            >
-              <Plus className="h-3.5 w-3.5 shrink-0" />
-              <span className="hidden sm:inline whitespace-nowrap">Add Expense</span>
-            </button>
-
-            {/* Settle Up Button */}
-            <button
-              type="button"
-              onClick={() => setShowSettleModal(true)}
-              className="hidden sm:inline-flex items-center gap-1.5 rounded-xl bg-[#18191E] hover:bg-black text-white px-3.5 py-2 text-xs font-bold uppercase tracking-wider shadow-xs active:scale-[0.98] transition-all whitespace-nowrap shrink-0"
-            >
-              <ArrowLeftRight className="h-3.5 w-3.5 shrink-0" />
-              <span className="whitespace-nowrap">Settle Up</span>
-            </button>
 
             {/* User Profile Pill */}
             <Link
@@ -214,18 +190,6 @@ export default function AppLayout() {
           })}
         </div>
       </nav>
-
-      {/* Quick Global Add Expense Modal */}
-      <QuickExpenseModal
-        isOpen={showAddExpense}
-        onClose={() => setShowAddExpense(false)}
-      />
-
-      {/* Quick Global Settle Modal */}
-      <SettlePaymentModal
-        isOpen={showSettleModal}
-        onClose={() => setShowSettleModal(false)}
-      />
     </div>
   );
 }

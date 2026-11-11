@@ -62,16 +62,24 @@ const RoomModel = {
   },
 
   async getMembers(roomId) {
-    const [rows] = await db.query(
-      `SELECT u.id, u.name, u.email, u.avatar_url, rm.joined_at, rm.is_active
-       FROM room_members rm
-       JOIN users u ON u.id = rm.user_id
-       WHERE rm.room_id = ? AND rm.is_active = 1
-       ORDER BY rm.joined_at ASC`,
-      [roomId]
-    );
-    return rows;
-  },
+  const [rows] = await db.query(
+    `SELECT
+       u.id,
+       u.name,
+       u.username,
+       u.mobile,
+       u.avatar_url,
+       rm.joined_at,
+       rm.is_active
+     FROM room_members rm
+     JOIN users u ON u.id = rm.user_id
+     WHERE rm.room_id = ? AND rm.is_active = 1
+     ORDER BY rm.joined_at ASC`,
+    [roomId]
+  );
+
+  return rows;
+},
 
   async isMember(roomId, userId) {
     const [rows] = await db.query(
@@ -92,6 +100,30 @@ const RoomModel = {
     );
     return rows[0];
   },
+  async createBudget(
+  { room_id, budget_amount, currency, created_by },
+  conn
+) {
+  const c = conn || db;
+
+  await c.execute(
+    `INSERT INTO room_budgets
+      (room_id, budget_amount, currency, created_by)
+     VALUES (?, ?, ?, ?)`,
+    [room_id, budget_amount, currency || "INR", created_by]
+  );
+},
+
+async getBudget(roomId) {
+  const [rows] = await db.query(
+    `SELECT budget_amount, currency, period_label
+     FROM room_budgets
+     WHERE room_id = ?`,
+    [roomId]
+  );
+
+  return rows[0] || null;
+},
 };
 
 module.exports = RoomModel;

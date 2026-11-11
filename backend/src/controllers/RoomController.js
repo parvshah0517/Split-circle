@@ -11,6 +11,7 @@ const RoomController = {
         name: req.body.name,
         description: req.body.description,
         default_currency: req.body.default_currency,
+        budget_amount: req.body.budget_amount,
       },
       req.user.id
     );

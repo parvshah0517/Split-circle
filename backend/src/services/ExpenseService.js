@@ -251,6 +251,28 @@ const ExpenseService = {
       );
     }
 
+    // Approval request validation
+    const requestApproval = payload.request_approval === true;
+    const requestedFrom = Number(payload.requested_from);
+
+    if (requestApproval) {
+      if (!Number.isInteger(requestedFrom) || !memberIds.has(requestedFrom)) {
+        throw new AppError(
+          "Choose a valid active room member for approval.",
+          422,
+          "INVALID_APPROVER"
+        );
+      }
+
+      if (requestedFrom === Number(userId)) {
+        throw new AppError(
+          "You cannot approve your own expense.",
+          422,
+          "INVALID_APPROVER"
+        );
+      }
+    }
+
     const totalMinor = toMinorUnits(
       payload.total_amount,
       'Expense amount'
@@ -302,7 +324,7 @@ const ExpenseService = {
           created_by: userId,
           on_behalf_of: null,
           split_method: splitMethod,
-          status: 'APPROVED',
+          status: requestApproval ? 'PENDING_APPROVAL' : 'APPROVED',
           notes: payload.notes || null,
         },
         conn
@@ -315,6 +337,19 @@ const ExpenseService = {
         })),
         conn
       );
+
+      // Create approval request within the same transaction.
+      if (requestApproval) {
+        await ExpenseModel.createApproval(
+          {
+            expense_id: expenseId,
+            revision_id: null,
+            requested_from: requestedFrom,
+            requested_by: userId,
+          },
+          conn
+        );
+      }
 
       await conn.commit();
       committed = true;

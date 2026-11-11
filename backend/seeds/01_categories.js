@@ -1,54 +1,45 @@
 'use strict';
 
-/**
- * Category seed.
- * Inserts the default system expense categories.
- * Safe to run multiple times (INSERT IGNORE).
- *
- * Run with:  npm run seed   (from /backend)
- */
-
-require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
+require('dotenv').config({
+  path: require('path').join(__dirname, '../.env'),
+});
 
 const mysql = require('mysql2/promise');
-const cfg   = require('../src/config');
+const config = require('../src/config');
 
 const CATEGORIES = [
-  { name: 'Food & Drink',    icon: '🍽️' },
-  { name: 'Transport',       icon: '🚗' },
-  { name: 'Accommodation',   icon: '🏨' },
-  { name: 'Entertainment',   icon: '🎬' },
-  { name: 'Shopping',        icon: '🛍️' },
-  { name: 'Utilities',       icon: '💡' },
-  { name: 'Healthcare',      icon: '🏥' },
-  { name: 'Groceries',       icon: '🛒' },
-  { name: 'Travel',          icon: '✈️' },
-  { name: 'Education',       icon: '📚' },
-  { name: 'Other',           icon: '📦' },
+  { name: 'Food & Drink', icon: '🍽️' },
+  { name: 'Transport', icon: '🚗' },
+  { name: 'Accommodation', icon: '🏨' },
+  { name: 'Entertainment', icon: '🎬' },
+  { name: 'Shopping', icon: '🛍️' },
+  { name: 'Utilities', icon: '💡' },
+  { name: 'Healthcare', icon: '🏥' },
+  { name: 'Groceries', icon: '🛒' },
+  { name: 'Travel', icon: '✈️' },
+  { name: 'Education', icon: '📚' },
+  { name: 'Other', icon: '📦' },
 ];
 
 async function run() {
-  const conn = await mysql.createConnection({
-    ...cfg.db,
-    multipleStatements: false,
-  });
+  const conn = await mysql.createConnection(config.db);
 
-  await conn.query(`USE \`${cfg.db.database}\``);
-  console.log(`[seed] Seeding categories into: ${cfg.db.database}`);
+  try {
+    console.log(`[seed] Categories database: ${config.db.database}`);
 
-  for (const cat of CATEGORIES) {
-    await conn.execute(
-      `INSERT IGNORE INTO categories (name, icon, is_system) VALUES (?, ?, 1)`,
-      [cat.name, cat.icon]
-    );
-    console.log(`[seed] ✓ ${cat.name}`);
+    for (const category of CATEGORIES) {
+      await conn.execute(
+        `INSERT INTO categories (name, icon, is_system)
+         VALUES (?, ?, 1)
+         ON DUPLICATE KEY UPDATE icon = VALUES(icon)`,
+        [category.name, category.icon]
+      );
+    }
+
+    console.log('[seed] Categories ready.');
+  } finally {
+    await conn.end();
   }
-
-  console.log('[seed] Categories seeded successfully.');
-  await conn.end();
 }
 
-run().catch(err => {
-  console.error('[seed] Fatal error:', err);
-  process.exit(1);
-});
+module.exports = { run };

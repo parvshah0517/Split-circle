@@ -169,6 +169,23 @@ const ExpenseModel = {
     );
     return result.insertId;
   },
+  async findApprovalByIdForUpdate(id, conn) {
+  const [rows] = await conn.query(
+    `SELECT ea.*,
+            e.status AS expense_status,
+            e.room_id,
+            e.title AS expense_title,
+            e.total_amount,
+            e.currency
+     FROM expense_approvals ea
+     JOIN expenses e ON e.id = ea.expense_id
+     WHERE ea.id = ?
+     FOR UPDATE`,
+    [id]
+  );
+
+  return rows[0] || null;
+},
 
   async findApprovalById(id) {
     const [rows] = await db.query(

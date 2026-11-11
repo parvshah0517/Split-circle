@@ -1,3 +1,4 @@
+
 'use strict';
 
 const bcrypt = require('bcryptjs');
@@ -10,34 +11,39 @@ const AppError = require('../utils/AppError');
 const SALT_ROUNDS = 12;
 
 const AuthService = {
-  async register({ name, email, password }) {
-    const existingUser = await UserModel.findByEmail(email);
+  async register({ name, username, mobile, mpin }) {
+    const normalizedUsername = username.trim().toLowerCase();
+    const normalizedMobile = mobile.trim();
+
+    const existingUser = await UserModel.findByUsername(
+      normalizedUsername
+    );
 
     if (existingUser) {
       throw new AppError(
-        'An account with this email already exists.',
+        'This username is already taken.',
         409,
-        'EMAIL_ALREADY_EXISTS'
+        'USERNAME_ALREADY_EXISTS'
       );
     }
 
-    const password_hash = await bcrypt.hash(password, SALT_ROUNDS);
+    const mpin_hash = await bcrypt.hash(mpin, SALT_ROUNDS);
 
     let userId;
 
     try {
       userId = await UserModel.create({
-        name,
-        email,
-        password_hash,
+        name: name.trim(),
+        username: normalizedUsername,
+        mobile: normalizedMobile,
+        mpin_hash,
       });
     } catch (err) {
-      // Handles a duplicate email inserted concurrently.
       if (err.code === 'ER_DUP_ENTRY') {
         throw new AppError(
-          'An account with this email already exists.',
+          'This username is already taken.',
           409,
-          'EMAIL_ALREADY_EXISTS'
+          'USERNAME_ALREADY_EXISTS'
         );
       }
 
@@ -52,25 +58,20 @@ const AuthService = {
     };
   },
 
-  async login({ email, password }) {
-    const userRecord = await UserModel.findByEmail(email);
+  async login({ username, mpin }) {
+    const normalizedUsername = username.trim().toLowerCase();
 
-    if (!userRecord) {
-      throw new AppError(
-        'Invalid email or password.',
-        401,
-        'INVALID_CREDENTIALS'
-      );
-    }
-
-    const passwordMatches = await bcrypt.compare(
-      password,
-      userRecord.password_hash
+    const userRecord = await UserModel.findByUsername(
+      normalizedUsername
     );
 
-    if (!passwordMatches) {
+    if (
+      !userRecord ||
+      !userRecord.mpin_hash ||
+      !(await bcrypt.compare(mpin, userRecord.mpin_hash))
+    ) {
       throw new AppError(
-        'Invalid email or password.',
+        'Invalid username or MPIN.',
         401,
         'INVALID_CREDENTIALS'
       );
@@ -86,9 +87,17 @@ const AuthService = {
 
   generateToken(user) {
     return jwt.sign(
-      { sub: String(user.id) },
+      {
+        sub: String(user.id),
+      },
       config.jwt.secret,
-      { expiresIn: config.jwt.expiresIn }
+      {
+        algorithm: 'HS256',
+        expiresIn: config.jwt.expiresIn,
+        issuer: config.jwt.issuer,
+        audience: config.jwt.audience,
+        jwtid: require('crypto').randomUUID(),
+      }
     );
   },
 
@@ -117,14 +126,10 @@ const AuthService = {
       );
     }
 
-    const updatedName = updates.name ?? existingUser.name;
-    const updatedAvatar = updates.avatar_url === undefined
-      ? existingUser.avatar_url
-      : updates.avatar_url;
-
     await UserModel.updateProfile(userId, {
-      name: updatedName,
-      avatar_url: updatedAvatar,
+      name: updates.name,
+      mobile: updates.mobile,
+      avatar_url: updates.avatar_url,
     });
 
     return UserModel.findById(userId);

@@ -14,12 +14,12 @@ import {
   ArrowLeftRight,
 } from "lucide-react";
 
-import QuickExpenseModal from "../components/expenses/QuickExpenseModal";
 import SettlePaymentModal from "../components/settlements/SettlePaymentModal";
 
 import { useAuth } from "../hooks/useAuth";
 import { getMyRooms } from "../services/groupService";
 import { getRoomExpenses } from "../services/expenseService";
+import { getRoomBalances } from "../services/settlementService";
 
 import { formatDate } from "../utils/format";
 
@@ -49,9 +49,12 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedRoomFilter, setSelectedRoomFilter] = useState("all");
+  const [selectedBalanceRoom, setSelectedBalanceRoom] = useState("");
+  const [showRoomPicker, setShowRoomPicker] = useState(false);
+  const [roomBalance, setRoomBalance] = useState(0);
+  const [balanceLoading, setBalanceLoading] = useState(false);
 
   // Modals & subviews
-  const [showAddExpense, setShowAddExpense] = useState(false);
   const [showSettleModal, setShowSettleModal] = useState(false);
   const settleRecipient = { name: "", amount: "0.00" };
 
@@ -92,6 +95,61 @@ export default function Dashboard() {
   useEffect(() => {
     loadData();
   }, []);
+
+  // Select the first available room for the balance card.
+  useEffect(() => {
+    if (rooms.length > 0 && !rooms.some(
+      (room) => String(room.id) === String(selectedBalanceRoom)
+    )) {
+      setSelectedBalanceRoom(String(rooms[0].id));
+    }
+  }, [rooms, selectedBalanceRoom]);
+
+  // Fetch the selected room's actual outstanding balance.
+  useEffect(() => {
+    const room = rooms.find(
+      (item) => String(item.id) === String(selectedBalanceRoom)
+    );
+    const currentUserId = user?.id ?? user?.userId;
+
+    if (!room || !currentUserId) {
+      setRoomBalance(0);
+      return;
+    }
+
+    let cancelled = false;
+    setBalanceLoading(true);
+
+    getRoomBalances(room.id)
+      .then(({ balances = [] }) => {
+        const currency = (room.defaultCurrency || "INR").toUpperCase();
+
+        const netBalanceMinor = balances
+          .filter((balance) => balance.currency === currency)
+          .reduce((total, balance) => {
+            if (String(balance.from_user_id) === String(currentUserId)) {
+              return total - Number(balance.amount_minor || 0);
+            }
+            if (String(balance.to_user_id) === String(currentUserId)) {
+              return total + Number(balance.amount_minor || 0);
+            }
+            return total;
+          }, 0);
+
+        if (!cancelled) setRoomBalance(netBalanceMinor / 100);
+      })
+      .catch((error) => {
+        console.error("Room balance loading error:", error);
+        if (!cancelled) setRoomBalance(0);
+      })
+      .finally(() => {
+        if (!cancelled) setBalanceLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedBalanceRoom, rooms, user]);
 
   // Compute "You Owe" and "You Owed"
   const { youOwe, youOwed, totalBalance } = useMemo(() => {
@@ -135,36 +193,86 @@ export default function Dashboard() {
     <div className="space-y-6 pb-20">
       {/* Top Banner Row: Total Balance + Owe/Owed Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        {/* Total Balance Card (Teal to Yellow gradient with attached dark bottom tab) */}
-        <div className="overflow-hidden rounded-[28px] shadow-[0_12px_32px_-6px_rgba(0,196,167,0.22)] md:col-span-1 flex flex-col justify-between">
-          {/* Top Gradient Section */}
-          <div className="relative p-6 bg-balance-gradient text-white flex-1">
-            <div className="pointer-events-none absolute -right-6 -top-6 h-36 w-36 rounded-full bg-yellow-300/40 blur-2xl" />
-
-            <div className="relative flex items-center justify-between">
-              <span className="text-xs font-semibold text-white/90 tracking-wide">
-                Total Balance
-              </span>
-
-            </div>
-
-            <div className="relative mt-3">
-              <p className="text-3xl lg:text-4xl font-black tracking-tight text-white">
-                ₹ {totalBalance.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </p>
-              <p className="text-[11px] text-white/80 mt-1">Across all active circles</p>
-            </div>
-          </div>
-
-          {/* Attached Dark Tab: + ADD EXPENSE */}
+        {/* Room Balance Card */}
+        <div className="relative overflow-visible">
           <button
             type="button"
-            onClick={() => setShowAddExpense(true)}
-            className="flex w-full items-center justify-center gap-2 bg-[#18191E] py-4 text-xs font-bold uppercase tracking-wider text-white hover:bg-black transition-colors"
+            onClick={() => rooms.length > 0 && setShowRoomPicker((open) => !open)}
+            aria-expanded={showRoomPicker}
+            className="w-full overflow-hidden rounded-[28px] text-left shadow-[0_12px_32px_-6px_rgba(0,196,167,0.22)] transition-transform hover:scale-[1.01] focus:outline-none focus:ring-2 focus:ring-[#00C4A7]"
           >
-            <Plus className="h-3.5 w-3.5" />
-            <span>Add Expense</span>
+            <div className="relative min-h-[190px] p-6 bg-balance-gradient text-white">
+              <div className="pointer-events-none absolute -right-6 -top-6 h-36 w-36 rounded-full bg-yellow-300/40 blur-2xl" />
+
+              <div className="relative flex items-center justify-between">
+                <span className="text-xs font-semibold text-white/90 tracking-wide">
+                  Room Balance
+                </span>
+                <span className="rounded-full bg-white/20 p-1.5">
+                  <ArrowRight className={`h-4 w-4 transition-transform ${showRoomPicker ? "rotate-90" : ""}`} />
+                </span>
+              </div>
+
+              <div className="relative mt-3">
+                <p className="text-3xl lg:text-4xl font-black tracking-tight text-white">
+                  {balanceLoading
+                    ? "Loading..."
+                    : `${roomBalance < 0 ? "- " : ""}₹ ${Math.abs(roomBalance).toLocaleString("en-IN", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}`}
+                </p>
+                <p className="text-[11px] text-white/85 mt-1">
+                  {rooms.length === 0
+                    ? "Create or join a room to view its balance"
+                    : !selectedBalanceRoom
+                      ? "Select a room"
+                      : roomBalance > 0
+                        ? "Others owe you in this room"
+                        : roomBalance < 0
+                          ? "You owe others in this room"
+                          : "You're all settled in this room"}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex w-full items-center justify-between bg-[#18191E] px-6 py-4 text-xs font-bold text-white">
+              <span className="truncate">
+                {rooms.find((room) => String(room.id) === String(selectedBalanceRoom))?.name || "Select a room"}
+              </span>
+              <span className="text-[#00C4A7]">
+                {showRoomPicker ? "Close" : "Change room"}
+              </span>
+            </div>
           </button>
+
+          {showRoomPicker && rooms.length > 0 && (
+            <div className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-2xl border border-gray-100 bg-white p-2 shadow-xl">
+              <p className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                Select a room
+              </p>
+              {rooms.map((room) => (
+                <button
+                  key={room.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedBalanceRoom(String(room.id));
+                    setShowRoomPicker(false);
+                  }}
+                  className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-xs font-semibold transition-colors ${
+                    String(room.id) === String(selectedBalanceRoom)
+                      ? "bg-teal-50 text-[#008F7A]"
+                      : "text-gray-700 hover:bg-gray-50"
+                  }`}
+                >
+                  <span>{room.name}</span>
+                  {String(room.id) === String(selectedBalanceRoom) && (
+                    <span className="text-[#00C4A7]">Selected</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* YOU OWE Card */}
@@ -432,13 +540,6 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
-
-      {/* Add Expense Modal */}
-      <QuickExpenseModal
-        isOpen={showAddExpense}
-        onClose={() => setShowAddExpense(false)}
-        onCreated={loadData}
-      />
 
       {/* Settle Keypad Modal (Screen 3) */}
       <SettlePaymentModal

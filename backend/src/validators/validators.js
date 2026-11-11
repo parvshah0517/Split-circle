@@ -93,6 +93,15 @@ const createExpenseValidator = [
     .optional()
     .trim()
     .isLength({ max: 2000 }),
+    body('request_approval')
+  .optional()
+  .isBoolean()
+  .withMessage('request_approval must be true or false.'),
+
+body('requested_from')
+  .if(body('request_approval').equals('true'))
+  .isInt({ gt: 0 })
+  .withMessage('A valid approver must be selected.'),
 ];
 
 

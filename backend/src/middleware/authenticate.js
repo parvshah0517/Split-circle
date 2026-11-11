@@ -1,3 +1,4 @@
+
 'use strict';
 
 const jwt = require('jsonwebtoken');
@@ -20,19 +21,49 @@ async function authenticate(req, res, next) {
       );
     }
 
-    const token = header.slice(7);
+    const token = header.slice(7).trim();
+
+    if (!token) {
+      return next(
+        new AppError(
+          'Authentication token is required.',
+          401,
+          'UNAUTHORIZED'
+        )
+      );
+    }
 
     let payload;
 
     try {
-      payload = jwt.verify(token, config.jwt.secret);
+      payload = jwt.verify(token, config.jwt.secret, {
+        algorithms: ['HS256'],
+        issuer: config.jwt.issuer,
+        audience: config.jwt.audience,
+      });
     } catch (err) {
-      const message = err.name === 'TokenExpiredError'
-        ? 'Authentication token has expired.'
-        : 'Authentication token is invalid.';
+      const message =
+        err.name === 'TokenExpiredError'
+          ? 'Authentication token has expired.'
+          : 'Authentication token is invalid.';
 
       return next(
         new AppError(message, 401, 'UNAUTHORIZED')
+      );
+    }
+
+    if (
+      !payload ||
+      typeof payload !== 'object' ||
+      !payload.sub ||
+      !/^\d+$/.test(String(payload.sub))
+    ) {
+      return next(
+        new AppError(
+          'Authentication token is invalid.',
+          401,
+          'UNAUTHORIZED'
+        )
       );
     }
 
@@ -51,6 +82,8 @@ async function authenticate(req, res, next) {
     req.user = {
       id: user.id,
       name: user.name,
+      username: user.username,
+      mobile: user.mobile,
       email: user.email,
     };
 

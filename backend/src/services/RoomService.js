@@ -8,8 +8,41 @@ const AppError = require('../utils/AppError');
 const { generateInvitationCode } = require('../utils/generators');
 
 const RoomService = {
-  // Create a room and automatically add its creator as a member.
-  async createRoom({ name, description, default_currency }, userId) {
+  // Create a room, add its creator, and optionally create a budget.
+  async createRoom(
+    { name, description, default_currency, budget_amount },
+    userId
+  ) {
+    const currency = default_currency || 'INR';
+
+    // Validate optional room budget before starting the transaction.
+    let budgetInCents = null;
+
+    if (
+      budget_amount !== undefined &&
+      budget_amount !== null &&
+      budget_amount !== ''
+    ) {
+      const amount = Number(budget_amount);
+      const cents = Math.round(amount * 100);
+
+      if (
+        !Number.isFinite(amount) ||
+        amount <= 0 ||
+        !Number.isSafeInteger(cents) ||
+        cents <= 0 ||
+        cents > 2147483647
+      ) {
+        throw new AppError(
+          'Room budget must be a valid positive amount.',
+          422,
+          'INVALID_BUDGET'
+        );
+      }
+
+      budgetInCents = cents;
+    }
+
     const conn = await db.getConnection();
     let committed = false;
 
@@ -24,21 +57,37 @@ const RoomService = {
           description,
           created_by: userId,
           invitation_code: invitationCode,
-          default_currency: default_currency || 'INR',
+          default_currency: currency,
         },
         conn
       );
 
+      // Automatically add the creator as a room member.
       await RoomModel.addMember(roomId, userId, conn);
+
+      // Create the optional room budget within the same transaction.
+      if (budgetInCents !== null) {
+        await RoomModel.createBudget(
+          {
+            room_id: roomId,
+            budget_amount: budgetInCents,
+            currency,
+            created_by: userId,
+          },
+          conn
+        );
+      }
 
       await conn.commit();
       committed = true;
 
-      return this.getRoomById(roomId, userId);
+      return await this.getRoomById(roomId, userId);
+
     } catch (error) {
       if (!committed) {
         await conn.rollback();
       }
+
       throw error;
     } finally {
       conn.release();
@@ -55,7 +104,11 @@ const RoomService = {
     const room = await RoomModel.findById(roomId);
 
     if (!room) {
-      throw new AppError('Room not found.', 404, 'ROOM_NOT_FOUND');
+      throw new AppError(
+        'Room not found.',
+        404,
+        'ROOM_NOT_FOUND'
+      );
     }
 
     const isMember = await RoomModel.isMember(roomId, userId);
@@ -69,10 +122,12 @@ const RoomService = {
     }
 
     const members = await RoomModel.getMembers(roomId);
+    const budget = await RoomModel.getBudget(roomId);
 
     return {
       ...room,
       members,
+      budget,
     };
   },
 

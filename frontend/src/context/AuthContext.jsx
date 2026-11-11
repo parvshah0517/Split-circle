@@ -1,3 +1,4 @@
+
 import {
   createContext,
   useCallback,
@@ -32,10 +33,12 @@ export function AuthProvider({ children }) {
     };
 
     window.addEventListener(SESSION_EXPIRED_EVENT, handleExpired);
-    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, handleExpired);
+
+    return () => {
+      window.removeEventListener(SESSION_EXPIRED_EVENT, handleExpired);
+    };
   }, []);
 
-  // Try to restore user on load if token exists
   useEffect(() => {
     let isCancelled = false;
 
@@ -45,94 +48,41 @@ export function AuthProvider({ children }) {
 
       try {
         const currentUser = await authService.getCurrentUser();
+
         if (!isCancelled && currentUser) {
-          const merged = { ...getStoredUser(), ...currentUser };
-          setUser(merged);
-          storeUser(merged);
+          setUser(currentUser);
+          storeUser(currentUser);
         }
       } catch {
-        // If backend fails, keep local stored user for seamless presentation
+        if (!isCancelled) {
+          clearStoredToken();
+          setUser(null);
+        }
       }
     }
 
     restoreSession();
+
     return () => {
       isCancelled = true;
     };
   }, []);
 
   const startSession = useCallback(({ user: nextUser, token }) => {
-    if (token) storeToken(token);
+    if (token) {
+      storeToken(token);
+    }
+
     setSessionExpired(false);
     setUser(nextUser);
     storeUser(nextUser);
   }, []);
 
-  // Simple username-based entry (for presentation application)
-  // Accepts a username composed of string with name and number (e.g. "alex24", "parv007")
-  const loginWithUsername = useCallback(
-    async (rawUsername) => {
-      const username = String(rawUsername || "").trim().toLowerCase();
-      if (!username) {
-        throw new Error("Please enter a username.");
-      }
-
-      // Check format: string consisting of name & numbers
-      const hasLetter = /[a-zA-Z]/.test(username);
-      const hasNumber = /[0-9]/.test(username);
-      if (!hasLetter || !hasNumber) {
-        throw new Error("Username must contain both letters and numbers (e.g. alex24, user101).");
-      }
-
-      const email = `${username}@splitcircle.app`;
-      const fallbackUser = {
-        id: username,
-        username,
-        name: rawUsername.trim(),
-        email,
-        mobile: "",
-        created_at: new Date().toISOString(),
-      };
-
-      // Try connecting to existing backend authentication endpoints in the background:
-      try {
-        const password = `Split_${username}1!`;
-        let authResult;
-        try {
-          // Attempt login first
-          authResult = await authService.login({ email, password });
-        } catch {
-          // If login fails, attempt register with the backend
-          authResult = await authService.register({
-            name: rawUsername.trim(),
-            email,
-            password,
-          });
-        }
-
-        if (authResult?.user) {
-          const userWithUsername = {
-            ...authResult.user,
-            username,
-            mobile: fallbackUser.mobile,
-          };
-          startSession({ user: userWithUsername, token: authResult.token });
-          return userWithUsername;
-        }
-      } catch {
-        // Graceful fallback for offline / presentation mode:
-      }
-
-      startSession({ user: fallbackUser, token: "demo-jwt-token" });
-      return fallbackUser;
-    },
-    [startSession]
-  );
-
   const register = useCallback(
     async (payload) => {
       const result = await authService.register(payload);
       startSession(result);
+      return result.user;
     },
     [startSession]
   );
@@ -141,6 +91,7 @@ export function AuthProvider({ children }) {
     async (credentials) => {
       const result = await authService.login(credentials);
       startSession(result);
+      return result.user;
     },
     [startSession]
   );
@@ -159,12 +110,12 @@ export function AuthProvider({ children }) {
       };
 
       try {
-        if (getStoredToken() && payload.name) {
-          const backendUser = await authService.updateProfile({ name: payload.name });
+        if (getStoredToken()) {
+          const backendUser = await authService.updateProfile(payload);
           Object.assign(updatedUser, backendUser);
         }
-      } catch (e) {
-        console.warn("Backend profile update fallback:", e);
+      } catch (error) {
+        throw error;
       }
 
       setUser(updatedUser);
@@ -180,7 +131,6 @@ export function AuthProvider({ children }) {
       isAuthenticated: Boolean(user),
       isLoading,
       sessionExpired,
-      loginWithUsername,
       register,
       login,
       logout,
@@ -190,7 +140,6 @@ export function AuthProvider({ children }) {
       user,
       isLoading,
       sessionExpired,
-      loginWithUsername,
       register,
       login,
       logout,
@@ -198,5 +147,9 @@ export function AuthProvider({ children }) {
     ]
   );
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
